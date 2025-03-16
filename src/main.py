@@ -89,6 +89,7 @@ def main():
     completeIDTimeMes = []
     validateObjTimeMes = []
     applyTimeMes = []
+    BackForeTimeMes = []
     trajdiamTimeMes = []
     trajdiamOldTimeMes = []
     relSiouTimeMes = []
@@ -100,12 +101,12 @@ def main():
         sys.exit()
     
     # creation of BackgroundSubstractor object 
-    #bs = cv.createBackgroundSubtractorMOG2(history = settings.background_history, varThreshold = 30, detectShadows = True) #varThreshold - detection threshold  
-    #bs = set_background_parameters(bs)
+    bs = cv.createBackgroundSubtractorMOG2(history = settings.background_history, varThreshold = 30, detectShadows = True) #varThreshold - detection threshold  
+    bs = set_background_parameters(bs)
     #detector_IO.print_background_parameters(bs)
 
     fps, width, height = get_video_parameters(vcap)
-    bs = None
+    #bs = None
     bs_new = image_processing.BackgroundSubtractor(settings.background_history, width, height)
     #detector_IO.print_video_parameters(fps, width, height)
     
@@ -152,14 +153,15 @@ def main():
         detector_IO.print_console(f'Detected camera mode: {mode}')     
 
         start = time.time()
-        #foreground = bs.apply(processing_frame)
+        foreground = bs.apply(processing_frame)
         applyTimeMes.append(time.time()-start)
 
         #if frame_counter % settings.update_background_per_frames == 0 or frame_counter == 1:
+        start = time.time()
         bs_new.add_frame(processing_frame)
         bs_new.create_background()
-        
-        foreground = bs_new.extract_foreground(processing_frame)
+        foreground_new = bs_new.extract_foreground(processing_frame)
+        BackForeTimeMes.append(time.time()-start)
 
         #combined_foreground = cv.hconcat([resize_to_fit(foreground, 1920, 1080), resize_to_fit(foreground_old, 1920, 1080)])
         #cv.imshow('Combined Foreground', combined_foreground)
@@ -225,6 +227,7 @@ def main():
         Complete IDs: Avg: {sum(completeIDTimeMes) / len(completeIDTimeMes):.5f}, Max: {max(completeIDTimeMes):.5f} | {completeIDTimeMes}\n
         Validate Objects: Avg: {sum(validateObjTimeMes) / len(validateObjTimeMes):.5f}, Max: {max(validateObjTimeMes):.5f} | {validateObjTimeMes}\n
         Apply: Avg: {sum(applyTimeMes) / len(applyTimeMes):.5f}, Max: {max(applyTimeMes):.5f} | {applyTimeMes}\n
+        BackFore: Avg: {sum(BackForeTimeMes) / len(BackForeTimeMes):.5f}, Max: {max(BackForeTimeMes):.5f} | {BackForeTimeMes}\n
         trajdiam: Avg: {sum(unpacking(trajdiamTimeMes)) / len(unpacking(trajdiamTimeMes)):.5f}, Max: {max(unpacking(trajdiamTimeMes)):.5f} | {unpacking(trajdiamTimeMes)}\n
         trajdiamOld: Avg: {sum(unpacking(trajdiamOldTimeMes)) / len(unpacking(trajdiamOldTimeMes)):.5f}, Max: {max(unpacking(trajdiamOldTimeMes)):.5f} | {unpacking(trajdiamOldTimeMes)}\n
         """)

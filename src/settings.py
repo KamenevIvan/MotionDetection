@@ -15,11 +15,11 @@ frames_skip = 100
 check_night_per_frames = 10
 
 enable_print_console = False
-enable_output_file = False
+enable_output_file = True
 enable_show_boxes = False
-enable_save_frames = True
+enable_save_frames = False
 
-inputfile = 'cam25-1.avi'    
+inputfile = 'input.mp4'    
 outputfile = 'mot-results.txt'
 output_frame_dir = "frames_out"
 box_color = (0, 255, 0)

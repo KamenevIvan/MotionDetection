@@ -64,6 +64,14 @@ def main():
                             assignIDs(), completeIDs(), validateObjs(), getIDsfr()                             
     '''
 
+    nightModeTimeMes = []
+    fixImgTimeMes = []
+    findContersTimeMes = []
+    detectTimeMes = []
+    assignIDTimeMes = []
+    completeIDTimeMes = []
+    validateObjTimeMes = []
+
     vcap = cv.VideoCapture(settings.inputfile)
     if not vcap.isOpened():
         print("Cannot open video. Quitting the program.")
@@ -103,7 +111,10 @@ def main():
         frame_counter += 1
         
         if frame_counter % settings.check_night_per_frames == 0 or frame_counter == 1:
+            start = time.time()
             nightMode = image_processing.nightVision(frame) # ИЗМЕРИТЬ
+            nightModeTimeMes.append(time.time()-start)
+
         
         #### preprocessing dependent on the scene conditions (day, night, rain, snow, snowfall)
         processing_frame = frame
@@ -121,20 +132,38 @@ def main():
         framedata = [] 
         
         if frame_counter > settings.frames_skip:
+            start = time.time()
             foreground = image_processing.fix_image(foreground)# ИЗМЕРИТЬ
+            fixImgTimeMes.append(time.time()-start)
+
+            start = time.time()
             contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE) # ИЗМЕРИТЬ
+            findContersTimeMes.append(time.time()-start)
+
+            start = time.time()
             framedata = detection_processing.detect(framedata, contours)# ИЗМЕРИТЬ
+            detectTimeMes.append(time.time()-start)
+
                 
         detections.append(framedata)
+        start = time.time()
         detections, nnids = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
+        assignIDTimeMes.append(time.time()-start)
+
         detector_IO.print_console(f'Assigned {nnids} new ids')
         
         # downfilling id for objects with just assigned ids for previous frames
+        start = time.time()
         detections, nidsc = detection_processing.completeIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
+        completeIDTimeMes.append(time.time()-start)
+
         #detector_IO.print_console(f'{nidsc} objects have their id filled in previous frames')
         
-        # validate objects in detections for suitability for reporting   
+        # validate objects in detections for suitability for reporting
+        start = time.time()   
         detections, nobsfr = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ
+        validateObjTimeMes.append(time.time()-start)
+
         detector_IO.print_console(f'{nobsfr} objects were marked suitable for reporting')
         detector_IO.print_console(f'current framedata: {detections[len(detections)-1]}')
 
@@ -147,6 +176,15 @@ def main():
     vcap.release()
     cv.destroyAllWindows()
     print('Video processing stopped. Average time for frame processing (s):', ttime / frame_counter)
+    with open("timeResults.txt", "w") as file:  
+        file.write(f"""Night mode: Avg: {sum(nightModeTimeMes) / len(nightModeTimeMes):.5f}, Max: {max(nightModeTimeMes):.5f} | {nightModeTimeMes}\n
+        Fix Img: Avg: {sum(fixImgTimeMes) / len(fixImgTimeMes):.5f}, Max: {max(fixImgTimeMes):.5f} | {fixImgTimeMes}\n
+        Find contours: Avg: {sum(findContersTimeMes) / len(findContersTimeMes):.5f}, Max: {max(findContersTimeMes):.5f} | {findContersTimeMes}\n
+        Detect: Avg: {sum(detectTimeMes) / len(detectTimeMes):.5f}, Max: {max(detectTimeMes):.5f} | {detectTimeMes}\n
+        Assign IDs: Avg: {sum(assignIDTimeMes) / len(assignIDTimeMes):.5f}, Max: {max(assignIDTimeMes):.5f} | {assignIDTimeMes}\n
+        Complete IDs: Avg: {sum(completeIDTimeMes) / len(completeIDTimeMes):.5f}, Max: {max(completeIDTimeMes):.5f} | {completeIDTimeMes}\n
+        Validate Objects: Avg: {sum(validateObjTimeMes) / len(validateObjTimeMes):.5f}, Max: {max(validateObjTimeMes):.5f} | {validateObjTimeMes}\n""")
+
     #############################################################
 
     

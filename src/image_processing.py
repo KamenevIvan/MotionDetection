@@ -2,6 +2,48 @@ import numpy as np
 import math
 import cv2 as cv
 import settings
+import collections
+
+class BackgroundSubtractor:
+    def __init__(self, buffer_size, frame_width, frame_height):
+        self.buffer_size = buffer_size
+        self.buffer = collections.deque(maxlen=buffer_size)
+        self.background = None
+        self.sum_frames = np.zeros((frame_height, frame_width), dtype=np.float32)
+
+        self.threshold_value = 70
+
+    def add_frame(self, frame):
+        if len(self.buffer) == self.buffer_size:
+            old_frame = self.buffer.popleft()
+            self.sum_frames -= old_frame
+
+        frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        self.buffer.append(frame)
+        self.sum_frames += frame
+
+    def create_background(self):
+        if len(self.buffer) == 0:
+            return None
+
+        self.background = (self.sum_frames / len(self.buffer)).astype(np.uint8)
+        return self.background
+
+    def extract_foreground(self, current_frame):
+        """
+        Выделяет передний план, вычитая задний план из текущего кадра.
+        :param current_frame: Текущий кадр (в оттенках серого).
+        :return: Передний план.
+        """
+
+        if self.background is None:
+            return current_frame
+        
+        current_frame = cv.cvtColor(current_frame, cv.COLOR_BGR2GRAY)
+        foreground = cv.absdiff(current_frame, self.background)
+        _, thresholded_foreground = cv.threshold(foreground, self.threshold_value, 255, cv.THRESH_BINARY)
+
+        return thresholded_foreground
 
 # image preprocessing functions
 

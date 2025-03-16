@@ -13,6 +13,7 @@ area_threshold = 256       # minimum area of objects for detection (px**2)
 ntol = 4.0    # threshold difference between blue, green and red channels in night vision mode 
 frames_skip = 100
 check_night_per_frames = 10
+update_background_per_frames = 10
 
 enable_print_console = False
 enable_output_file = True

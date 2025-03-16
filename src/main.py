@@ -38,22 +38,36 @@ def get_video_parameters(cap: cv.VideoCapture):
     return fps, width, height
 
 def apply_settings_for_night(bs: cv.BackgroundSubtractorMOG2, frame):
-    bs.setBackgroundRatio(0.5)
+    #bs.setBackgroundRatio(0.5)
     # contrast increase for nighttime video
     frame = image_processing.adaptiveHe(frame, contrast=2.0, tile=(8,8))
     mode = "night vision"
     return bs, frame, mode
 
 def apply_settings_for_day(bs: cv.BackgroundSubtractorMOG2, frame):
-    bs.setVarThreshold(200.0)
+    #bs.setVarThreshold(200.0)
     # correction of gamma (correction of image brightness for daytime - decrease of contrast)
     frame = image_processing.gammac(frame, 150)
-    bs.setBackgroundRatio(0.95)
+    #bs.setBackgroundRatio(0.95)
     mode = 'day light'
     return bs, frame, mode
 
 def unpacking(listOfLists):
     return [item for sublist in listOfLists for item in sublist] 
+
+def resize_to_fit(image, max_height, max_width):
+    """
+    Изменяет размер изображения так, чтобы оно помещалось в указанные границы.
+    :param image: Входное изображение.
+    :param max_height: Максимальная высота.
+    :param max_width: Максимальная ширина.
+    :return: Изображение с измененным размером.
+    """
+    height, width = image.shape[:2]
+    scale = min(max_height / height, max_width / width)
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+    return cv.resize(image, (new_width, new_height))
 
 # moving objects detector main method 
 def main():
@@ -86,11 +100,13 @@ def main():
         sys.exit()
     
     # creation of BackgroundSubstractor object 
-    bs = cv.createBackgroundSubtractorMOG2(history = settings.background_history, varThreshold = 30, detectShadows = True) #varThreshold - detection threshold  
-    bs = set_background_parameters(bs)
+    #bs = cv.createBackgroundSubtractorMOG2(history = settings.background_history, varThreshold = 30, detectShadows = True) #varThreshold - detection threshold  
+    #bs = set_background_parameters(bs)
     #detector_IO.print_background_parameters(bs)
 
     fps, width, height = get_video_parameters(vcap)
+    bs = None
+    bs_new = image_processing.BackgroundSubtractor(settings.background_history, width, height)
     #detector_IO.print_video_parameters(fps, width, height)
     
     # variables for the detector 
@@ -136,8 +152,18 @@ def main():
         detector_IO.print_console(f'Detected camera mode: {mode}')     
 
         start = time.time()
-        foreground = bs.apply(processing_frame)
+        #foreground = bs.apply(processing_frame)
         applyTimeMes.append(time.time()-start)
+
+        #if frame_counter % settings.update_background_per_frames == 0 or frame_counter == 1:
+        bs_new.add_frame(processing_frame)
+        bs_new.create_background()
+        
+        foreground = bs_new.extract_foreground(processing_frame)
+
+        #combined_foreground = cv.hconcat([resize_to_fit(foreground, 1920, 1080), resize_to_fit(foreground_old, 1920, 1080)])
+        #cv.imshow('Combined Foreground', combined_foreground)
+        #cv.waitKey(20)
 
         framedata = [] 
         

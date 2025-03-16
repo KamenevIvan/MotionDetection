@@ -102,8 +102,8 @@ def main():
             break
         frame_counter += 1
         
-        if frame_counter % settings.check_night == 0 or frame_counter == 1:
-            nightMode = image_processing.nightVision(frame)
+        if frame_counter % settings.check_night_per_frames == 0 or frame_counter == 1:
+            nightMode = image_processing.nightVision(frame) # ИЗМЕРИТЬ
         
         #### preprocessing dependent on the scene conditions (day, night, rain, snow, snowfall)
         processing_frame = frame
@@ -121,20 +121,20 @@ def main():
         framedata = [] 
         
         if frame_counter > settings.frames_skip:
-            foreground = image_processing.fix_image(foreground)
-            contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE) 
-            framedata = detection_processing.detect(framedata, contours)
+            foreground = image_processing.fix_image(foreground)# ИЗМЕРИТЬ
+            contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE) # ИЗМЕРИТЬ
+            framedata = detection_processing.detect(framedata, contours)# ИЗМЕРИТЬ
                 
         detections.append(framedata)
-        detections, nnids = detection_processing.assignIDs(detections, nf_threshold_id)
+        detections, nnids = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         detector_IO.print_console(f'Assigned {nnids} new ids')
         
         # downfilling id for objects with just assigned ids for previous frames
-        detections, nidsc = detection_processing.completeIDs(detections, nf_threshold_id)
+        detections, nidsc = detection_processing.completeIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         #detector_IO.print_console(f'{nidsc} objects have their id filled in previous frames')
         
         # validate objects in detections for suitability for reporting   
-        detections, nobsfr = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) 
+        detections, nobsfr = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ
         detector_IO.print_console(f'{nobsfr} objects were marked suitable for reporting')
         detector_IO.print_console(f'current framedata: {detections[len(detections)-1]}')
 

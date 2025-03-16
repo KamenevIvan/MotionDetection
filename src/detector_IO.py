@@ -34,15 +34,30 @@ def print_frame_detection(path, detections: list[detection_processing.Detection]
                 file.write(line)
 
 def show_boxes(frame, detections: list[detection_processing.Detection], fps):
-    if settings.enable_show_boxes:
+    if settings.enable_show_boxes or settings.enable_save_frames:
         for detect in detections:
             cv.rectangle(frame, (detect.x, detect.y), (detect.x + detect.width, detect.y + detect.height), settings.box_color, 2)
-        cv.imshow("Video-zagolovok okna", frame)
-        cv.waitKey(int(1000/fps))
+            # Добавляем подпись с ID объекта, если он есть
+            if detect.id != -1:
+                label = f"ID: {detect.id}"
+                # Позиция текста (над прямоугольником)
+                text_position = (detect.x, detect.y - 10)  # Смещаем текст немного выше прямоугольника
+                # Шрифт и размер текста
+                font = cv.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.8
+                font_thickness = 2
+                # Цвет текста (можно использовать тот же, что и для прямоугольника, или другой)
+                text_color = settings.box_color
+                # Рисуем текст на кадре
+                cv.putText(frame, label, text_position, font, font_scale, text_color, font_thickness)
+
+        if settings.enable_show_boxes:
+            cv.imshow("Video-zagolovok okna", frame)
+            cv.waitKey(int(1000/fps))
         return frame
     return None
 
 def save_frame_with_boxes(frame, frame_counter, leng):
-    if settings.enable_save_frames and frame:
+    if settings.enable_save_frames and frame is not None:
         cv.imwrite(settings.output_frame_dir + "/image_with_box"+ str(frame_counter).zfill(leng)+".jpg", frame)
             

@@ -40,7 +40,7 @@ def detect(framedata: list, contours):
             framedata.append(objectdata)
     return framedata
 
-def relSiou(x11, y11, x12, y12, x21, y21, x22, y22):
+def relSiou(x11, y11, x12, y12, x21, y21, x22, y22): # измерить, сравнить время и результаты со старой версией
     ''' Computation of relative area of intersection between two rectangles 
         relSiou = Siou / min(S1, S2)
         Input: coordinates of left top and bottom right corners of the two rectangles 
@@ -60,6 +60,47 @@ def relSiou(x11, y11, x12, y12, x21, y21, x22, y22):
     # Relative intersection area
     Srel = Siou / min(s1, s2) if min(s1, s2) != 0 else 0
     
+    return Srel
+
+def relSiou_old(x11, y11, x12, y12, x21, y21, x22, y22):  # измерить, сравнить время и результаты с новой версией
+    ''' Computation of relative area of intersection between two rectangles 
+        relSiou = Siou / min(S1, S2)
+        Input: coordinates of left top and bottom right corners of the two rectangles 
+        Output: relative intersection area in the range of 0 .. 1
+    '''
+    # dimensions of the intersection rectangle 
+    lx = 0
+    ly = 0
+    # width of overlap rectangle 
+    # case 1: .|. |
+    if x21 <= x11 and x22 >= x11 and x22 <= x12:
+        lx = x22 - x11
+    # case 2: .||.
+    if x21 <= x11 and x22 >= x12:
+        lx = x12 - x11
+    # case 3: |..|
+    if x21 >= x11 and x21 <= x12 and x22 >= x11 and x22 <= x12:
+        lx = x22 - x21
+    # case 4: |.|.
+    if x21 >= x11 and x21 <= x12 and x22 >= x12:
+        lx = x12 - x21
+    # height of intersection rectangle 
+    # case 1: 
+    if y21 <= y11 and y22 >= y11 and y22 <= y12:
+        ly = y22 - y11
+    # case 2: .||.
+    if y21 <= y11 and y22 >= y12:
+        ly = y12 - y11
+    # case 3: |..|
+    if y21 >= y11 and y21 <= y12 and y22 >= y11 and y22 <= y12:
+        ly = y22 - y21
+    # case 4: |.|.
+    if y21 >= y11 and y21 <= y12 and y22 >= y12:
+        ly = y12 - y21 
+    Siou = lx * ly 
+    S1 = (x12 - x11) * (y12 - y11) 
+    S2 = (x22 - x21) * (y22 - y21) 
+    Srel = Siou / min(S1, S2)      
     return Srel
 
 # detections processing methods 
@@ -245,14 +286,22 @@ def obtainTrajs(detections: list[list[Detection]], dcn: int, ids):
     #print('Exiting function obtainTrajs()')
     return trajs
 
-def trajdiam(trajs, tkey):
+def trajdiam(trajs, tkey): # измерить, сравнить время и результаты со старой версией
     ''' Computing diameter of the trajectory (maximum distance between points) 
         Input: trajs - dictionary with keys as number of trajectory, values as list of points
                tkey - number of the trajectory to compute diameter 
         Return: diameter of trajectory (float)
     ''' 
+    # Check if there is a trajectory for a given tkey
+    if tkey not in trajs or not trajs[tkey]:
+        return 0.0 
+    
     traj = np.array(trajs[tkey])  # Convert trajectory to numpy array
     npoints = len(traj)
+
+    # If there are less than two points, the trajectory diameter is 0
+    if npoints < 2:
+        return 0.0
     
     # Compute pairwise differences
     diff = traj[:, np.newaxis, :] - traj[np.newaxis, :, :]
@@ -260,9 +309,34 @@ def trajdiam(trajs, tkey):
     # Compute pairwise distances
     distances = np.sqrt(np.sum(diff**2, axis=2))
     
-    # Find maximum distance (excluding diagonal where i == j)
-    rmax = np.max(distances[np.triu_indices(npoints, k=1)])
+    # Find the indices of the upper triangle (without diagonal)
+    upper_triangle_indices = np.triu_indices(npoints, k=1)
     
+    if len(upper_triangle_indices[0]) == 0:
+        return 0.0  #If there are no pairs of points, return 0
+    
+    rmax = np.max(distances[upper_triangle_indices])
+    return rmax
+
+def trajdiam_old(trajs, tkey): # измерить, сравнить время и результаты с новой версией
+    ''' Computing diameter of the trajectory (maximum distance between points) 
+        Updated 29.11.2024 
+        Input: trajs - dictionary with keys as number of trajectory, values as list of points
+               tkey - number of the trajectory to compute diameter 
+        Return: diameter of trajectory (float)
+    ''' 
+    traj = trajs[tkey]
+    rmax = 0
+    npoints = len(traj) 
+    for i in range(0, npoints - 1, 1):
+        for j in range(i, npoints, 1):    
+            x1 = traj[i][0]
+            y1 = traj[i][1]
+            x2 = traj[j][0]
+            y2 = traj[j][1]
+            r = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            if r > rmax:
+                rmax = r
     return rmax
 
 def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_threshold_id): 

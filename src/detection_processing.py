@@ -126,6 +126,9 @@ def assignIDs(detections: list[list[Detection]], nf_threshold_id):
             scale_threshold_id - scaling threshold
         Требуемые функции:  relSiou() 
     '''
+    relSiouTimeMes = []
+    relSiouOldTimeMes = []
+
     dcn = len(detections)-1
     # assigning the attribute id initial value 
     if not hasattr(assignIDs, 'id'):
@@ -161,7 +164,14 @@ def assignIDs(detections: list[list[Detection]], nf_threshold_id):
             x22, y22 = x21 + w2, y21 + h2
 
             # Вычисление relSiou и масштабирования
+            start = time.time()
             relSiou12 = relSiou(x11, y11, x12, y12, x21, y21, x22, y22)
+            relSiouTimeMes.append(time.time()-start)
+
+            start = time.time()
+            relSiou12Test = relSiou_old(x11, y11, x12, y12, x21, y21, x22, y22)
+            relSiouOldTimeMes.append(time.time()-start)
+
             scalew12 = w1 / w2 if w1 / w2 >= 1 else w2 / w1
             scaleh12 = h1 / h2 if h1 / h2 >= 1 else h2 / h1
 
@@ -209,7 +219,7 @@ def assignIDs(detections: list[list[Detection]], nf_threshold_id):
         else:
             ids_in_frame.append(detection.id)
 
-    return detections, nnids
+    return detections, nnids, relSiouTimeMes,  relSiouOldTimeMes
 
 
 def completeIDs(detections: list[list[Detection]], nf_threshold_id):
@@ -351,13 +361,24 @@ def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_thres
         Return: detections with property sfr set to True for objects satisfying the criteria 
         Global parameters: nf_threshold_id, tr_mov_threshold
     ''' 
+    trajdiamTimeMes = []
+    trajdiamOldTimeMes = []
+
     dcn = dcn = len(detections)-1
     nobsfr = 0
     for current_detection in detections[dcn]: 
         if current_detection.frames_count >= nf_threshold_id:
             idn = current_detection.id
             trajs = obtainTrajs(detections, dcn, [idn])
+
+            start = time.time()
             movement = trajdiam(trajs, idn)
+            trajdiamTimeMes.append(time.time()-start)
+
+            start = time.time()
+            movementTest = trajdiam_old(trajs, idn)
+            trajdiamOldTimeMes.append(time.time()-start)
+
             if movement >= settings.tr_mov_threshold: 
                 if current_detection.last_frame == -1:
                     current_detection.for_report = True
@@ -365,5 +386,5 @@ def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_thres
                 elif current_detection.last_frame > -1 and (frame_counter - current_detection.last_frame)%(settings.report_frame) == 0:
                     current_detection.for_report = True
                     nobsfr += 1
-    return detections, nobsfr
+    return detections, nobsfr, trajdiamTimeMes, trajdiamOldTimeMes
 

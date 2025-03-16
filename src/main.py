@@ -52,6 +52,9 @@ def apply_settings_for_day(bs: cv.BackgroundSubtractorMOG2, frame):
     mode = 'day light'
     return bs, frame, mode
 
+def unpacking(listOfLists):
+    return [item for sublist in listOfLists for item in sublist] 
+
 # moving objects detector main method 
 def main():
     ''' Detection of moving objects using background subtractor MOG2. 
@@ -71,6 +74,11 @@ def main():
     assignIDTimeMes = []
     completeIDTimeMes = []
     validateObjTimeMes = []
+    applyTimeMes = []
+    trajdiamTimeMes = []
+    trajdiamOldTimeMes = []
+    relSiouTimeMes = []
+    relSiouOldTimeMes = []
 
     vcap = cv.VideoCapture(settings.inputfile)
     if not vcap.isOpened():
@@ -127,8 +135,10 @@ def main():
             bs, processing_frame, mode = apply_settings_for_day(bs, frame)
         detector_IO.print_console(f'Detected camera mode: {mode}')     
 
-
+        start = time.time()
         foreground = bs.apply(processing_frame)
+        applyTimeMes.append(time.time()-start)
+
         framedata = [] 
         
         if frame_counter > settings.frames_skip:
@@ -147,8 +157,10 @@ def main():
                 
         detections.append(framedata)
         start = time.time()
-        detections, nnids = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
+        detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         assignIDTimeMes.append(time.time()-start)
+        relSiouTimeMes.append(one)
+        relSiouOldTimeMes.append(two)
 
         detector_IO.print_console(f'Assigned {nnids} new ids')
         
@@ -161,8 +173,10 @@ def main():
         
         # validate objects in detections for suitability for reporting
         start = time.time()   
-        detections, nobsfr = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ
+        detections, nobsfr, one, two = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ
         validateObjTimeMes.append(time.time()-start)
+        trajdiamTimeMes.append(one)
+        trajdiamOldTimeMes.append(two) 
 
         detector_IO.print_console(f'{nobsfr} objects were marked suitable for reporting')
         detector_IO.print_console(f'current framedata: {detections[len(detections)-1]}')
@@ -183,7 +197,14 @@ def main():
         Detect: Avg: {sum(detectTimeMes) / len(detectTimeMes):.5f}, Max: {max(detectTimeMes):.5f} | {detectTimeMes}\n
         Assign IDs: Avg: {sum(assignIDTimeMes) / len(assignIDTimeMes):.5f}, Max: {max(assignIDTimeMes):.5f} | {assignIDTimeMes}\n
         Complete IDs: Avg: {sum(completeIDTimeMes) / len(completeIDTimeMes):.5f}, Max: {max(completeIDTimeMes):.5f} | {completeIDTimeMes}\n
-        Validate Objects: Avg: {sum(validateObjTimeMes) / len(validateObjTimeMes):.5f}, Max: {max(validateObjTimeMes):.5f} | {validateObjTimeMes}\n""")
+        Validate Objects: Avg: {sum(validateObjTimeMes) / len(validateObjTimeMes):.5f}, Max: {max(validateObjTimeMes):.5f} | {validateObjTimeMes}\n
+        Apply: Avg: {sum(applyTimeMes) / len(applyTimeMes):.5f}, Max: {max(applyTimeMes):.5f} | {applyTimeMes}\n
+        trajdiam: Avg: {sum(unpacking(trajdiamTimeMes)) / len(unpacking(trajdiamTimeMes)):.5f}, Max: {max(unpacking(trajdiamTimeMes)):.5f} | {unpacking(trajdiamTimeMes)}\n
+        trajdiamOld: Avg: {sum(unpacking(trajdiamOldTimeMes)) / len(unpacking(trajdiamOldTimeMes)):.5f}, Max: {max(unpacking(trajdiamOldTimeMes)):.5f} | {unpacking(trajdiamOldTimeMes)}\n
+        """)
+
+        #relSiou: Avg: {sum(unpacking(relSiouTimeMes)) / len(unpacking(relSiouTimeMes)):.5f}, Max: {max(unpacking(relSiouTimeMes)):.5f} | {unpacking(relSiouTimeMes)}\n
+        #relSiouOld: Avg: {sum(unpacking(relSiouOldTimeMes)) / len(unpacking(relSiouOldTimeMes)):.5f}, Max: {max(unpacking(relSiouOldTimeMes)):.5f} | {unpacking(relSiouOldTimeMes)}\n
 
     #############################################################
 

@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from typing import Dict, Tuple
 
@@ -161,6 +162,8 @@ def compute_tracking_metrics(gt: np.ndarray, det: np.ndarray) -> Dict[str, float
     Returns:
         Dict[str, float]: Словарь метрик.
     """
+    start_time = time.time()
+
     TP = 0
     FP = 0
     FN = 0
@@ -221,7 +224,11 @@ def compute_tracking_metrics(gt: np.ndarray, det: np.ndarray) -> Dict[str, float
     Rcll = TP / (TP + FN) if (TP + FN) > 0 else 0
     Prcn = TP / (TP + FP) if (TP + FP) > 0 else 0
     FAF = FP / total_frames if total_frames > 0 else 0
-    Hz = total_frames / (gt[-1, 0] - gt[0, 0] + 1) if (gt[-1, 0] - gt[0, 0] + 1) > 0 else 0
+
+    end_time = time.time()
+    total_time = end_time - start_time
+
+    Hz = total_frames / total_time if total_time > 0 else 0
 
     LocA = compute_localization_accuracy(gt, det)
 

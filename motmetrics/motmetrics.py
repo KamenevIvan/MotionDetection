@@ -211,9 +211,9 @@ def compute_tracking_metrics(gt: np.ndarray, det: np.ndarray) -> Dict[str, float
         total_frames_obj = gt_object_frames[obj_id]
         tracked_frames_obj = tracked_frames.get(obj_id, 0)
 
-        if tracked_frames_obj / total_frames_obj >= 0.8:
+        if tracked_frames_obj / total_frames_obj >= 0.5:
             MT += 1
-        elif tracked_frames_obj / total_frames_obj <= 0.2:
+        elif tracked_frames_obj / total_frames_obj <= 0.5:
             ML += 1
 
     MOTA = 1 - (FN + FP + IDSW) / total_gt if total_gt > 0 else 0

@@ -38,14 +38,14 @@ def get_video_parameters(cap: cv.VideoCapture):
     return fps, width, height
 
 def apply_settings_for_night(bs: cv.BackgroundSubtractorMOG2, frame):
-    #bs.setBackgroundRatio(0.5)
+    bs.setBackgroundRatio(0.5)
     # contrast increase for nighttime video
     frame = image_processing.adaptiveHe(frame, contrast=2.0, tile=(8,8))
     mode = "night vision"
     return bs, frame, mode
 
 def apply_settings_for_day(bs: cv.BackgroundSubtractorMOG2, frame):
-    #bs.setVarThreshold(200.0)
+    bs.setVarThreshold(200.0)
     # correction of gamma (correction of image brightness for daytime - decrease of contrast)
     frame = image_processing.gammac(frame, 150)
     #bs.setBackgroundRatio(0.95)
@@ -56,13 +56,6 @@ def unpacking(listOfLists):
     return [item for sublist in listOfLists for item in sublist] 
 
 def resize_to_fit(image, max_height, max_width):
-    """
-    Изменяет размер изображения так, чтобы оно помещалось в указанные границы.
-    :param image: Входное изображение.
-    :param max_height: Максимальная высота.
-    :param max_width: Максимальная ширина.
-    :return: Изображение с измененным размером.
-    """
     height, width = image.shape[:2]
     scale = min(max_height / height, max_width / width)
     new_width = int(width * scale)
@@ -90,6 +83,7 @@ def main():
     validateObjTimeMes = []
     applyTimeMes = []
     BackForeTimeMes = []
+    BackForeTimeMes_OLD = []
     trajdiamTimeMes = []
     trajdiamOldTimeMes = []
     relSiouTimeMes = []
@@ -108,6 +102,7 @@ def main():
     fps, width, height = get_video_parameters(vcap)
     #bs = None
     bs_new = image_processing.BackgroundSubtractor(settings.background_history, width, height)
+    bs_new_back = image_processing.BackgroundSubtractor_OLD(settings.background_history, width, height)
     #detector_IO.print_video_parameters(fps, width, height)
     
     # variables for the detector 
@@ -133,6 +128,7 @@ def main():
         if not ret:
             print("Cannot read video frame. Video stream may have ended. Exiting.")
             break
+        gray_frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         frame_counter += 1
         
         if frame_counter % settings.check_night_per_frames == 0 or frame_counter == 1:
@@ -142,6 +138,7 @@ def main():
 
         
         #### preprocessing dependent on the scene conditions (day, night, rain, snow, snowfall)
+        
         processing_frame = frame
         mode = "None" 
         if nightMode:
@@ -151,6 +148,8 @@ def main():
             nf_threshold_id = settings.nf_threshold_day 
             bs, processing_frame, mode = apply_settings_for_day(bs, frame)
         detector_IO.print_console(f'Detected camera mode: {mode}')     
+        
+        #processing_frame = image_processing.enhance_frame(frame)
 
         start = time.time()
         foreground = bs.apply(processing_frame)
@@ -160,10 +159,16 @@ def main():
         start = time.time()
         bs_new.add_frame(processing_frame)
         bs_new.create_background()
-        foreground_new = bs_new.extract_foreground(processing_frame)
+        foreground = bs_new.extract_foreground(processing_frame)
         BackForeTimeMes.append(time.time()-start)
 
-        #combined_foreground = cv.hconcat([resize_to_fit(foreground, 1920, 1080), resize_to_fit(foreground_old, 1920, 1080)])
+        start = time.time()
+        bs_new_back.add_frame(processing_frame)
+        bs_new_back.create_background()
+        foreground_back = bs_new_back.extract_foreground(processing_frame)
+        BackForeTimeMes_OLD.append(time.time()-start)
+
+        #combined_foreground = cv.hconcat([resize_to_fit(foreground_back, 1920, 1080), resize_to_fit(foreground, 1920, 1080)])
         #cv.imshow('Combined Foreground', combined_foreground)
         #cv.waitKey(20)
 
@@ -171,8 +176,12 @@ def main():
         
         if frame_counter > settings.frames_skip:
             start = time.time()
-            foreground = image_processing.fix_image(foreground)# ИЗМЕРИТЬ
+            foreground = image_processing.fix_image_old(foreground)# ИЗМЕРИТЬ
+            foreground_ = image_processing.fix_image(foreground)# ИЗМЕРИТЬ
             fixImgTimeMes.append(time.time()-start)
+            #combined_foreground = cv.hconcat([resize_to_fit(foreground_bs, 1920, 1080), resize_to_fit(foreground, 1920, 1080)])
+            #cv.imshow('Combined Foreground', combined_foreground)
+            #cv.waitKey(20)
 
             start = time.time()
             contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE) # ИЗМЕРИТЬ
@@ -183,7 +192,9 @@ def main():
             detectTimeMes.append(time.time()-start)
 
                 
-        detections.append(framedata)
+        sorted_detections = detection_processing.remove_nested_detections(framedata, 0.8)
+        merged_detections = detection_processing.merge_close_detections(sorted_detections, 10)
+        detections.append(merged_detections)
         start = time.time()
         detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         assignIDTimeMes.append(time.time()-start)
@@ -209,9 +220,8 @@ def main():
         detector_IO.print_console(f'{nobsfr} objects were marked suitable for reporting')
         detector_IO.print_console(f'current framedata: {detections[len(detections)-1]}')
 
-
         detector_IO.print_frame_detection(settings.outputfile, detections[len(detections)-1], frame_counter)
-        frame_with_boxes = detector_IO.show_boxes(frame, detections[len(detections)-1], fps)
+        frame_with_boxes = detector_IO.show_boxes(frame.copy(), detections[len(detections)-1], fps)
         detector_IO.save_frame_with_boxes(frame_with_boxes, frame_counter, int(len(str(vcap.get(cv.CAP_PROP_FRAME_COUNT)))))     
         
         t1 = time.perf_counter()
@@ -219,11 +229,18 @@ def main():
     cv.destroyAllWindows()
     print('Video processing stopped. Average time for frame processing (s):', ttime / frame_counter)
     with open("timeResults.txt", "w") as file:  
+        file.write(f"""
+        OpenCV: Avg: {sum(applyTimeMes) / len(applyTimeMes):.5f}, Max: {max(applyTimeMes):.5f} | {applyTimeMes}\n
+        Custom Old: Avg: {sum(BackForeTimeMes_OLD) / len(BackForeTimeMes_OLD):.5f}, Max: {max(BackForeTimeMes_OLD):.5f} | {BackForeTimeMes_OLD}\n
+        Custom New: Avg: {sum(BackForeTimeMes) / len(BackForeTimeMes):.5f}, Max: {max(BackForeTimeMes):.5f} | {BackForeTimeMes}\n
+        """)
+    '''
+    with open("timeResults.txt", "w") as file:  
         file.write(f"""Night mode: Avg: {sum(nightModeTimeMes) / len(nightModeTimeMes):.5f}, Max: {max(nightModeTimeMes):.5f} | {nightModeTimeMes}\n
         Fix Img: Avg: {sum(fixImgTimeMes) / len(fixImgTimeMes):.5f}, Max: {max(fixImgTimeMes):.5f} | {fixImgTimeMes}\n
         Find contours: Avg: {sum(findContersTimeMes) / len(findContersTimeMes):.5f}, Max: {max(findContersTimeMes):.5f} | {findContersTimeMes}\n
         Detect: Avg: {sum(detectTimeMes) / len(detectTimeMes):.5f}, Max: {max(detectTimeMes):.5f} | {detectTimeMes}\n
-        Assign IDs: Avg: {sum(assignIDTimeMes) / len(assignIDTimeMes):.5f}, Max: {max(assignIDTimeMes):.5f} | {assignIDTimeMes}\n
+        
         Complete IDs: Avg: {sum(completeIDTimeMes) / len(completeIDTimeMes):.5f}, Max: {max(completeIDTimeMes):.5f} | {completeIDTimeMes}\n
         Validate Objects: Avg: {sum(validateObjTimeMes) / len(validateObjTimeMes):.5f}, Max: {max(validateObjTimeMes):.5f} | {validateObjTimeMes}\n
         Apply: Avg: {sum(applyTimeMes) / len(applyTimeMes):.5f}, Max: {max(applyTimeMes):.5f} | {applyTimeMes}\n
@@ -231,11 +248,12 @@ def main():
         trajdiam: Avg: {sum(unpacking(trajdiamTimeMes)) / len(unpacking(trajdiamTimeMes)):.5f}, Max: {max(unpacking(trajdiamTimeMes)):.5f} | {unpacking(trajdiamTimeMes)}\n
         trajdiamOld: Avg: {sum(unpacking(trajdiamOldTimeMes)) / len(unpacking(trajdiamOldTimeMes)):.5f}, Max: {max(unpacking(trajdiamOldTimeMes)):.5f} | {unpacking(trajdiamOldTimeMes)}\n
         """)
+        '''
 
         #relSiou: Avg: {sum(unpacking(relSiouTimeMes)) / len(unpacking(relSiouTimeMes)):.5f}, Max: {max(unpacking(relSiouTimeMes)):.5f} | {unpacking(relSiouTimeMes)}\n
         #relSiouOld: Avg: {sum(unpacking(relSiouOldTimeMes)) / len(unpacking(relSiouOldTimeMes)):.5f}, Max: {max(unpacking(relSiouOldTimeMes)):.5f} | {unpacking(relSiouOldTimeMes)}\n
 
-    #############################################################
+    #############################################################Assign IDs: Avg: {sum(assignIDTimeMes) / len(assignIDTimeMes):.5f}, Max: {max(assignIDTimeMes):.5f} | {assignIDTimeMes}\n
 
     
 if __name__ == '__main__':

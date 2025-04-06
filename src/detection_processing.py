@@ -22,6 +22,98 @@ class Detection:
 # nf - number of frames object is present, indxprev - index of object in the prev frame, sfr - if suitable for report
 # fnrlt - frame number when object was reported last time
 
+def merge_close_detections(detections: list[Detection], distance_threshold):
+    """
+    Объединяет детекции, если расстояние между их границами <= threshold.
+    Все параметры новой детекции берутся из самой большой детекции в группе.
+    """
+    if not detections:
+        return []
+    merged = []
+    
+    for i, current in enumerate(detections):
+        if current is None:
+            continue
+            
+        to_merge = [current]
+        
+        curr_l, curr_r = current.x, current.x + current.width
+        curr_t, curr_b = current.y, current.y + current.height
+        
+        # Ищем близкие детекции
+        for j in range(i+1, len(detections)):
+            other = detections[j]
+            if other is None:
+                continue
+                
+            other_l, other_r = other.x, other.x + other.width
+            other_t, other_b = other.y, other.y + other.height
+            
+            dx = max(curr_l - other_r, other_l - curr_r)
+            dy = max(curr_t - other_b, other_t - curr_b)
+            
+            if max(dx, dy) <= distance_threshold:
+                to_merge.append(other)
+                detections[j] = None
+        
+        if len(to_merge) > 1:
+            largest_det = max(to_merge, key=lambda d: d.width * d.height)
+            
+            new_l = min(d.x for d in to_merge)
+            new_r = max(d.x + d.width for d in to_merge)
+            new_t = min(d.y for d in to_merge)
+            new_b = max(d.y + d.height for d in to_merge)
+            
+            merged_det = Detection(
+                id=largest_det.id,
+                x=new_l,
+                y=new_t,
+                width=new_r - new_l,
+                height=new_b - new_t,
+                vx=largest_det.vx,
+                vy=largest_det.vy,
+                nf=largest_det.frames_count,
+                indxprev=largest_det.indx_prew,
+                sfr=largest_det.for_report,
+                fnrlt=largest_det.last_frame
+            )
+            merged.append(merged_det)
+        else:
+            merged.append(current)
+    
+    return merged
+
+def remove_nested_detections(detections: list[Detection], overlap_threshold: float):
+    """
+    Удаляет детекции, которые почти полностью находятся внутри других (больших) детекций,
+    используя функцию relSiou для вычисления относительной площади пересечения.
+    """
+    if not detections:
+        return []
+
+    sorted_dets = sorted(detections, key=lambda d: d.width * d.height)
+    outer_detections = []
+    
+    for i, current_det in enumerate(sorted_dets):
+        is_nested = False
+        
+        x11, y11 = current_det.x, current_det.y
+        x12, y12 = current_det.x + current_det.width, current_det.y + current_det.height
+        
+        for larger_det in sorted_dets[i+1:]:
+            x21, y21 = larger_det.x, larger_det.y
+            x22, y22 = larger_det.x + larger_det.width, larger_det.y + larger_det.height
+            
+            Srel = relSiou(x11, y11, x12, y12, x21, y21, x22, y22)
+            if Srel >= overlap_threshold:
+                is_nested = True
+                break
+        
+        if not is_nested:
+            outer_detections.append(current_det)
+    
+    return outer_detections
+
 def detect(framedata: list, contours):
     # obtaining bounding upright rectangles 
     for contour in contours:

@@ -53,7 +53,8 @@ def show_boxes(frame, detections: list[detection_processing.Detection], fps):
 
         if settings.enable_show_boxes:
             cv.imshow("Video-zagolovok okna", frame)
-            cv.waitKey(int(1000/fps))
+            #cv.waitKey(int(1000/fps))
+            cv.waitKey(1)
         return frame
     return None
 

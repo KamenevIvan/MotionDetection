@@ -37,23 +37,19 @@ def show_boxes(frame, detections: list[detection_processing.Detection], fps):
     if settings.enable_show_boxes or settings.enable_save_frames:
         for detect in detections:
             cv.rectangle(frame, (detect.x, detect.y), (detect.x + detect.width, detect.y + detect.height), settings.box_color, 2)
-            # Добавляем подпись с ID объекта, если он есть
             if detect.id != -1:
                 label = f"ID: {detect.id}"
-                # Позиция текста (над прямоугольником)
-                text_position = (detect.x, detect.y - 10)  # Смещаем текст немного выше прямоугольника
-                # Шрифт и размер текста
+                text_position = (detect.x, detect.y - 10)
                 font = cv.FONT_HERSHEY_SIMPLEX
                 font_scale = 0.8
                 font_thickness = 2
-                # Цвет текста (можно использовать тот же, что и для прямоугольника, или другой)
                 text_color = settings.box_color
-                # Рисуем текст на кадре
                 cv.putText(frame, label, text_position, font, font_scale, text_color, font_thickness)
 
         if settings.enable_show_boxes:
             cv.imshow("Video-zagolovok okna", frame)
             cv.waitKey(int(1000/fps))
+            cv.waitKey(1)
         return frame
     return None
 

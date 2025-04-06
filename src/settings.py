@@ -2,7 +2,7 @@
 
 buffer_size = 30
 nf_object = 3000          # maximum number of frames for object to be tracked = length of detections CL 
-background_history = 200       # number of frames in background subtractor history 
+background_history = 100    # number of frames in background subtractor history 
 iou_threshold_id = 0.2     # threshold for iou between consequtive frames for object to tracked (0 .. 1.0) 
 scale_threshold_id = 2.0   # threshold scaling factor for bboxes dimensions w and h 
 nf_threshold_day = 17      # number of frames object should appear continuously to be registered - day mode (2 ..) 
@@ -16,14 +16,14 @@ check_night_per_frames = 10
 update_background_per_frames = 10
 
 enable_print_console = False
-enable_output_file = True
-enable_show_boxes = False
+enable_output_file = False
+enable_show_boxes = True
 enable_save_frames = False
 
-inputfile = 'input.mp4'    
+inputfile = "vki.avi"    
 outputfile = 'mot-results.txt'
-output_frame_dir = "frames_out"
-box_color = (0, 255, 0)
+output_frame_dir = "VKI_CAMERAS_TESTS/night/img"
+box_color = (0, 0, 255)
 
 if buffer_size < nf_object:
     buffer_size = nf_object

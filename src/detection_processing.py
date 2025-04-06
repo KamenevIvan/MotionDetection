@@ -22,6 +22,98 @@ class Detection:
 # nf - number of frames object is present, indxprev - index of object in the prev frame, sfr - if suitable for report
 # fnrlt - frame number when object was reported last time
 
+def merge_close_detections(detections: list[Detection], distance_threshold):
+    """
+    Объединяет детекции, если расстояние между их границами <= threshold.
+    Все параметры новой детекции берутся из самой большой детекции в группе.
+    """
+    if not detections:
+        return []
+    merged = []
+    
+    for i, current in enumerate(detections):
+        if current is None:
+            continue
+            
+        to_merge = [current]
+        
+        curr_l, curr_r = current.x, current.x + current.width
+        curr_t, curr_b = current.y, current.y + current.height
+        
+        # Ищем близкие детекции
+        for j in range(i+1, len(detections)):
+            other = detections[j]
+            if other is None:
+                continue
+                
+            other_l, other_r = other.x, other.x + other.width
+            other_t, other_b = other.y, other.y + other.height
+            
+            dx = max(curr_l - other_r, other_l - curr_r)
+            dy = max(curr_t - other_b, other_t - curr_b)
+            
+            if max(dx, dy) <= distance_threshold:
+                to_merge.append(other)
+                detections[j] = None
+        
+        if len(to_merge) > 1:
+            largest_det = max(to_merge, key=lambda d: d.width * d.height)
+            
+            new_l = min(d.x for d in to_merge)
+            new_r = max(d.x + d.width for d in to_merge)
+            new_t = min(d.y for d in to_merge)
+            new_b = max(d.y + d.height for d in to_merge)
+            
+            merged_det = Detection(
+                id=largest_det.id,
+                x=new_l,
+                y=new_t,
+                width=new_r - new_l,
+                height=new_b - new_t,
+                vx=largest_det.vx,
+                vy=largest_det.vy,
+                nf=largest_det.frames_count,
+                indxprev=largest_det.indx_prew,
+                sfr=largest_det.for_report,
+                fnrlt=largest_det.last_frame
+            )
+            merged.append(merged_det)
+        else:
+            merged.append(current)
+    
+    return merged
+
+def remove_nested_detections(detections: list[Detection], overlap_threshold: float):
+    """
+    Удаляет детекции, которые почти полностью находятся внутри других (больших) детекций,
+    используя функцию relSiou для вычисления относительной площади пересечения.
+    """
+    if not detections:
+        return []
+
+    sorted_dets = sorted(detections, key=lambda d: d.width * d.height)
+    outer_detections = []
+    
+    for i, current_det in enumerate(sorted_dets):
+        is_nested = False
+        
+        x11, y11 = current_det.x, current_det.y
+        x12, y12 = current_det.x + current_det.width, current_det.y + current_det.height
+        
+        for larger_det in sorted_dets[i+1:]:
+            x21, y21 = larger_det.x, larger_det.y
+            x22, y22 = larger_det.x + larger_det.width, larger_det.y + larger_det.height
+            
+            Srel = relSiou(x11, y11, x12, y12, x21, y21, x22, y22)
+            if Srel >= overlap_threshold:
+                is_nested = True
+                break
+        
+        if not is_nested:
+            outer_detections.append(current_det)
+    
+    return outer_detections
+
 def detect(framedata: list, contours):
     # obtaining bounding upright rectangles 
     for contour in contours:
@@ -40,7 +132,7 @@ def detect(framedata: list, contours):
             framedata.append(objectdata)
     return framedata
 
-def relSiou(x11, y11, x12, y12, x21, y21, x22, y22): # измерить, сравнить время и результаты со старой версией
+def relSiou(x11, y11, x12, y12, x21, y21, x22, y22):
     ''' Computation of relative area of intersection between two rectangles 
         relSiou = Siou / min(S1, S2)
         Input: coordinates of left top and bottom right corners of the two rectangles 
@@ -60,47 +152,6 @@ def relSiou(x11, y11, x12, y12, x21, y21, x22, y22): # измерить, сра�
     # Relative intersection area
     Srel = Siou / min(s1, s2) if min(s1, s2) != 0 else 0
     
-    return Srel
-
-def relSiou_old(x11, y11, x12, y12, x21, y21, x22, y22):  # измерить, сравнить время и результаты с новой версией
-    ''' Computation of relative area of intersection between two rectangles 
-        relSiou = Siou / min(S1, S2)
-        Input: coordinates of left top and bottom right corners of the two rectangles 
-        Output: relative intersection area in the range of 0 .. 1
-    '''
-    # dimensions of the intersection rectangle 
-    lx = 0
-    ly = 0
-    # width of overlap rectangle 
-    # case 1: .|. |
-    if x21 <= x11 and x22 >= x11 and x22 <= x12:
-        lx = x22 - x11
-    # case 2: .||.
-    if x21 <= x11 and x22 >= x12:
-        lx = x12 - x11
-    # case 3: |..|
-    if x21 >= x11 and x21 <= x12 and x22 >= x11 and x22 <= x12:
-        lx = x22 - x21
-    # case 4: |.|.
-    if x21 >= x11 and x21 <= x12 and x22 >= x12:
-        lx = x12 - x21
-    # height of intersection rectangle 
-    # case 1: 
-    if y21 <= y11 and y22 >= y11 and y22 <= y12:
-        ly = y22 - y11
-    # case 2: .||.
-    if y21 <= y11 and y22 >= y12:
-        ly = y12 - y11
-    # case 3: |..|
-    if y21 >= y11 and y21 <= y12 and y22 >= y11 and y22 <= y12:
-        ly = y22 - y21
-    # case 4: |.|.
-    if y21 >= y11 and y21 <= y12 and y22 >= y12:
-        ly = y12 - y21 
-    Siou = lx * ly 
-    S1 = (x12 - x11) * (y12 - y11) 
-    S2 = (x22 - x21) * (y22 - y21) 
-    Srel = Siou / min(S1, S2)      
     return Srel
 
 # detections processing methods 
@@ -164,13 +215,7 @@ def assignIDs(detections: list[list[Detection]], nf_threshold_id):
             x22, y22 = x21 + w2, y21 + h2
 
             # Вычисление relSiou и масштабирования
-            start = time.time()
             relSiou12 = relSiou(x11, y11, x12, y12, x21, y21, x22, y22)
-            relSiouTimeMes.append(time.time()-start)
-
-            start = time.time()
-            relSiou12Test = relSiou_old(x11, y11, x12, y12, x21, y21, x22, y22)
-            relSiouOldTimeMes.append(time.time()-start)
 
             scalew12 = w1 / w2 if w1 / w2 >= 1 else w2 / w1
             scaleh12 = h1 / h2 if h1 / h2 >= 1 else h2 / h1
@@ -328,27 +373,6 @@ def trajdiam(trajs, tkey): # измерить, сравнить время и р
     rmax = np.max(distances[upper_triangle_indices])
     return rmax
 
-def trajdiam_old(trajs, tkey): # измерить, сравнить время и результаты с новой версией
-    ''' Computing diameter of the trajectory (maximum distance between points) 
-        Updated 29.11.2024 
-        Input: trajs - dictionary with keys as number of trajectory, values as list of points
-               tkey - number of the trajectory to compute diameter 
-        Return: diameter of trajectory (float)
-    ''' 
-    traj = trajs[tkey]
-    rmax = 0
-    npoints = len(traj) 
-    for i in range(0, npoints - 1, 1):
-        for j in range(i, npoints, 1):    
-            x1 = traj[i][0]
-            y1 = traj[i][1]
-            x2 = traj[j][0]
-            y2 = traj[j][1]
-            r = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-            if r > rmax:
-                rmax = r
-    return rmax
-
 def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_threshold_id): 
     ''' Method to mark objects in the current framedata as suitable for reporting
         Criteria are (1) object appeared for over nf_threshold_id frames
@@ -371,13 +395,7 @@ def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_thres
             idn = current_detection.id
             trajs = obtainTrajs(detections, dcn, [idn])
 
-            start = time.time()
             movement = trajdiam(trajs, idn)
-            trajdiamTimeMes.append(time.time()-start)
-
-            start = time.time()
-            movementTest = trajdiam_old(trajs, idn)
-            trajdiamOldTimeMes.append(time.time()-start)
 
             if movement >= settings.tr_mov_threshold: 
                 if current_detection.last_frame == -1:

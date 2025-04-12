@@ -5,7 +5,80 @@ import settings
 import collections
 import random
 
-class BackgroundSubtractor_3chanel:
+import collections
+import cv2 as cv
+import numpy as np
+
+def resize_to_fit(image, max_height, max_width):
+    height, width = image.shape[:2]
+    scale = min(max_height / height, max_width / width)
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+    return cv.resize(image, (new_width, new_height))
+
+class BackgroundSubtractor_HSV:
+    def __init__(self, buffer_size, frame_width, frame_height):
+        self.buffer_size = buffer_size
+        self.buffer = collections.deque(maxlen=buffer_size)
+        self.background = None
+        self.sum_frames = np.zeros((frame_height, frame_width, 3), dtype=np.float32)
+
+        self.threshold_h = 120 #120
+        self.threshold_s = 30 #80
+        self.threshold_v = 100 # 90
+        self.blur = 5
+        self.minimum_are_contours = 50
+
+    def add_frame(self, frame):
+        if len(self.buffer) == self.buffer_size:
+            old_frame = self.buffer.popleft()
+            self.sum_frames -= old_frame
+
+        hsv_frame = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+        hsv_frame = cv.GaussianBlur(hsv_frame, (self.blur, self.blur), 0)
+        self.buffer.append(hsv_frame)
+        self.sum_frames += hsv_frame
+
+    def create_background(self):
+        if len(self.buffer) == 0:
+            return None
+
+        self.background = (self.sum_frames / len(self.buffer)).astype(np.uint8)
+        return self.background
+
+    def extract_foreground(self, current_frame):
+        if self.background is None:
+            return current_frame
+
+        hsv_frame = cv.cvtColor(current_frame, cv.COLOR_BGR2HSV)
+        blurred = cv.GaussianBlur(hsv_frame, (self.blur, self.blur), 0)
+
+        
+        
+        foreground = cv.absdiff(blurred, self.background)
+        _, main_objects_h = cv.threshold(foreground[:,:,0], self.threshold_h, 255, cv.THRESH_BINARY)
+        _, main_objects_s = cv.threshold(foreground[:,:,1], self.threshold_s, 255, cv.THRESH_BINARY)
+        _, main_objects_v = cv.threshold(foreground[:,:,2], self.threshold_v, 255, cv.THRESH_BINARY)
+
+        #combined= cv.hconcat([resize_to_fit(self.background[:,:,0], 1280, 720), resize_to_fit(blurred[:,:,0], 1280,720), resize_to_fit(foreground[:,:,0], 1280,720)])
+        combined= cv.hconcat([resize_to_fit(main_objects_h, 1280, 720), resize_to_fit(main_objects_s, 1280,720)])
+        cv.imshow('Combined', combined)
+        cv.waitKey()
+        
+        main_objects = cv.bitwise_and(main_objects_h, main_objects_s)
+        main_objects = cv.bitwise_or(main_objects, main_objects_v)
+        
+        eroded = cv.erode(main_objects, kernel=(5, 5), iterations=1)
+        
+        contours, _ = cv.findContours(eroded, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        mask = np.zeros_like(eroded)
+        for contour in contours:
+            if cv.contourArea(contour) > self.minimum_are_contours:
+                cv.drawContours(mask, [contour], -1, 255, cv.FILLED)
+
+        return mask
+
+class BackgroundSubtractor_YCbCr:
     def __init__(self, buffer_size, frame_width, frame_height):
         self.buffer_size = buffer_size
         self.buffer = collections.deque(maxlen=buffer_size)
@@ -72,10 +145,9 @@ class BackgroundSubtractor:
         self.sum_frames = np.zeros((frame_height, frame_width), dtype=np.float32)
 
         # Параметры обработки
-        self.threshold_value = 45 #45
+        self.threshold_value = 50 #45
         self.blur = 5 #5
         self.minimum_are_contours = 50 #50
-        self.shadow_threshold = 50 #50
 
     def add_frame(self, frame):
         if len(self.buffer) == self.buffer_size:
@@ -102,13 +174,9 @@ class BackgroundSubtractor:
         blurred = cv.GaussianBlur(gray_frame, (self.blur, self.blur), 0)
         
         foreground = cv.absdiff(blurred, self.background)
-
-        _, shadow_mask = cv.threshold(foreground, self.shadow_threshold, 255, cv.THRESH_BINARY_INV)
         _, main_objects = cv.threshold(foreground, self.threshold_value, 255, cv.THRESH_BINARY)
 
-        no_shadows = cv.bitwise_and(main_objects, cv.bitwise_not(shadow_mask))
-        
-        eroded = cv.erode(no_shadows, kernel=(5, 5), iterations=1)
+        eroded = cv.erode(main_objects, kernel=(5, 5), iterations=1)
         
         contours, _ = cv.findContours(eroded, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         mask = np.zeros_like(eroded)
@@ -118,26 +186,23 @@ class BackgroundSubtractor:
 
         return mask
     
-class BackgroundSubtractor_OLD:
+class BackgroundSubtractor_Fast:
     def __init__(self, buffer_size, frame_width, frame_height):
         self.buffer_size = buffer_size
         self.buffer = collections.deque(maxlen=buffer_size)
         self.background = None
         self.sum_frames = np.zeros((frame_height, frame_width), dtype=np.float32)
 
-        self.threshold_value = 45
-        self.blur = 3
-        self.minimum_are_contours = 100
+        self.threshold_value = 70
 
     def add_frame(self, frame):
         if len(self.buffer) == self.buffer_size:
             old_frame = self.buffer.popleft()
             self.sum_frames -= old_frame
 
-        gray_frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        gray_frame = cv.GaussianBlur(gray_frame, (self.blur, self.blur), 0)
-        self.buffer.append(gray_frame)
-        self.sum_frames += gray_frame
+        frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        self.buffer.append(frame)
+        self.sum_frames += frame
 
     def create_background(self):
         if len(self.buffer) == 0:
@@ -150,25 +215,11 @@ class BackgroundSubtractor_OLD:
         if self.background is None:
             return current_frame
         
-        gray_frame = cv.cvtColor(current_frame, cv.COLOR_BGR2GRAY)
-        gray_frame = cv.GaussianBlur(gray_frame, (self.blur, self.blur), 0)
-        foreground = cv.absdiff(gray_frame, self.background)
+        current_frame = cv.cvtColor(current_frame, cv.COLOR_BGR2GRAY)
+        foreground = cv.absdiff(current_frame, self.background)
         _, thresholded_foreground = cv.threshold(foreground, self.threshold_value, 255, cv.THRESH_BINARY)
 
-        thresholded_foreground = cv.morphologyEx(thresholded_foreground, cv.MORPH_OPEN, (5, 5)) # шумы
-        #thresholded_foreground = cv.morphologyEx(thresholded_foreground, cv.MORPH_CLOSE, (3, 3)) # заполнение
-
-        # Удаление слишком маленьких контуров
-        contours, _ = cv.findContours(thresholded_foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-        min_contour_area = self.minimum_are_contours
-        mask = np.zeros_like(thresholded_foreground)
-
-        for contour in contours:
-            if cv.contourArea(contour) > min_contour_area:
-                cv.drawContours(mask, [contour], -1, 255, thickness=cv.FILLED)
-        
-        
-        return mask
+        return thresholded_foreground
 
 # image preprocessing functions
 def fix_image(foreground):

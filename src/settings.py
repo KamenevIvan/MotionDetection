@@ -17,12 +17,12 @@ update_background_per_frames = 10
 
 enable_print_console = False
 enable_output_file = False
-enable_show_boxes = True
+enable_show_boxes = False
 enable_save_frames = False
 
-inputfile = "vki.avi"    
+inputfile = "vki.avi"  
 outputfile = 'mot-results.txt'
-output_frame_dir = "VKI_CAMERAS_TESTS/night/img"
+output_frame_dir = r"F:\VScode\NSU\DetectMotion\VKI_CAMERAS_TESTS\magadan\frames"
 box_color = (0, 0, 255)
 
 if buffer_size < nf_object:

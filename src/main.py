@@ -83,11 +83,15 @@ def main():
     validateObjTimeMes = []
     applyTimeMes = []
     BackForeTimeMes = []
-    BackForeTimeMes_OLD = []
     trajdiamTimeMes = []
     trajdiamOldTimeMes = []
     relSiouTimeMes = []
     relSiouOldTimeMes = []
+
+    BackForeTimeMes_fast = []
+    BackForeTimeMes_YCrCb = []
+    BackForeTimeMes_HSV = []
+
 
     vcap = cv.VideoCapture(settings.inputfile)
     if not vcap.isOpened():
@@ -101,8 +105,10 @@ def main():
 
     fps, width, height = get_video_parameters(vcap)
     #bs = None
-    bs_new = image_processing.BackgroundSubtractor(settings.background_history, width, height)
-    bs_new_back = image_processing.BackgroundSubtractor_OLD(settings.background_history, width, height)
+    bs_gray = image_processing.BackgroundSubtractor(settings.background_history, width, height)
+    bs_fast = image_processing.BackgroundSubtractor_Fast(settings.background_history, width, height)
+    bs_YCrCb = image_processing.BackgroundSubtractor_YCbCr(settings.background_history, width, height)
+    bs_hsv = image_processing.BackgroundSubtractor_HSV(settings.background_history, width, height)
     #detector_IO.print_video_parameters(fps, width, height)
     
     # variables for the detector 
@@ -156,19 +162,31 @@ def main():
         applyTimeMes.append(time.time()-start)
 
         #if frame_counter % settings.update_background_per_frames == 0 or frame_counter == 1:
+        bs_gray.add_frame(processing_frame)
+        bs_gray.create_background()
         start = time.time()
-        bs_new.add_frame(processing_frame)
-        bs_new.create_background()
-        foreground = bs_new.extract_foreground(processing_frame)
+        foreground = bs_gray.extract_foreground(processing_frame)
         BackForeTimeMes.append(time.time()-start)
 
+        bs_fast.add_frame(processing_frame)
+        bs_fast.create_background()
         start = time.time()
-        bs_new_back.add_frame(processing_frame)
-        bs_new_back.create_background()
-        foreground_back = bs_new_back.extract_foreground(processing_frame)
-        BackForeTimeMes_OLD.append(time.time()-start)
+        foreground_fast = bs_fast.extract_foreground(processing_frame)
+        BackForeTimeMes_fast.append(time.time()-start)
 
-        #combined_foreground = cv.hconcat([resize_to_fit(foreground_back, 1920, 1080), resize_to_fit(foreground, 1920, 1080)])
+        bs_YCrCb.add_frame(processing_frame)
+        bs_YCrCb.create_background()
+        start = time.time()
+        foreground_ycrcb = bs_YCrCb.extract_foreground(processing_frame)
+        BackForeTimeMes_YCrCb.append(time.time()-start)
+
+        bs_hsv.add_frame(processing_frame)
+        bs_hsv.create_background()
+        start = time.time()
+        foreground_hsv = bs_hsv.extract_foreground(processing_frame)
+        BackForeTimeMes_HSV.append(time.time()-start)
+
+        #combined_foreground = cv.hconcat([resize_to_fit(foreground_ycrcb, 1920, 1080), resize_to_fit(foreground_hsv, 1920, 1080)])
         #cv.imshow('Combined Foreground', combined_foreground)
         #cv.waitKey(20)
 
@@ -192,9 +210,9 @@ def main():
             detectTimeMes.append(time.time()-start)
 
                 
-        sorted_detections = detection_processing.remove_nested_detections(framedata, 0.8)
-        merged_detections = detection_processing.merge_close_detections(sorted_detections, 10)
-        detections.append(merged_detections)
+        #merged_detections = detection_processing.merge_close_detections(framedata, 5)
+        outer_detections = detection_processing.remove_nested_detections(framedata, 0.6)
+        detections.append(outer_detections)
         start = time.time()
         detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         assignIDTimeMes.append(time.time()-start)
@@ -231,8 +249,10 @@ def main():
     with open("timeResults.txt", "w") as file:  
         file.write(f"""
         OpenCV: Avg: {sum(applyTimeMes) / len(applyTimeMes):.5f}, Max: {max(applyTimeMes):.5f} | {applyTimeMes}\n
-        Custom Old: Avg: {sum(BackForeTimeMes_OLD) / len(BackForeTimeMes_OLD):.5f}, Max: {max(BackForeTimeMes_OLD):.5f} | {BackForeTimeMes_OLD}\n
-        Custom New: Avg: {sum(BackForeTimeMes) / len(BackForeTimeMes):.5f}, Max: {max(BackForeTimeMes):.5f} | {BackForeTimeMes}\n
+        Custom Gray_Fast: Avg: {sum(BackForeTimeMes_fast) / len(BackForeTimeMes_fast):.5f}, Max: {max(BackForeTimeMes_fast):.5f} | {BackForeTimeMes_fast}\n
+        Custom Gray: Avg: {sum(BackForeTimeMes) / len(BackForeTimeMes):.5f}, Max: {max(BackForeTimeMes):.5f} | {BackForeTimeMes}\n
+        Custom YCbCr: Avg: {sum(BackForeTimeMes_YCrCb) / len(BackForeTimeMes_YCrCb):.5f}, Max: {max(BackForeTimeMes_YCrCb):.5f} | {BackForeTimeMes_YCrCb}\n
+        Custom HSV: Avg: {sum(BackForeTimeMes_HSV) / len(BackForeTimeMes_HSV):.5f}, Max: {max(BackForeTimeMes_HSV):.5f} | {BackForeTimeMes_HSV}\n
         """)
     '''
     with open("timeResults.txt", "w") as file:  

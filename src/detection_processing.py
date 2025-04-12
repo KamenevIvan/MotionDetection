@@ -91,18 +91,17 @@ def remove_nested_detections(detections: list[Detection], overlap_threshold: flo
     if not detections:
         return []
 
-    sorted_dets = sorted(detections, key=lambda d: d.width * d.height)
+    sorted_dets = sorted(detections, key=lambda d: d.width * d.height, reverse=True)
     outer_detections = []
     
-    for i, current_det in enumerate(sorted_dets):
+    for current_det in sorted_dets:
         is_nested = False
-        
         x11, y11 = current_det.x, current_det.y
-        x12, y12 = current_det.x + current_det.width, current_det.y + current_det.height
+        x12, y12 = x11 + current_det.width, y11 + current_det.height
         
-        for larger_det in sorted_dets[i+1:]:
-            x21, y21 = larger_det.x, larger_det.y
-            x22, y22 = larger_det.x + larger_det.width, larger_det.y + larger_det.height
+        for outer_det in outer_detections:
+            x21, y21 = outer_det.x, outer_det.y
+            x22, y22 = x21 + outer_det.width, y21 + outer_det.height
             
             Srel = relSiou(x11, y11, x12, y12, x21, y21, x22, y22)
             if Srel >= overlap_threshold:

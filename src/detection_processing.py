@@ -22,87 +22,25 @@ class Detection:
 # nf - number of frames object is present, indxprev - index of object in the prev frame, sfr - if suitable for report
 # fnrlt - frame number when object was reported last time
 
-def merge_close_detections(detections: list[Detection], distance_threshold):
-    """
-    Объединяет детекции, если расстояние между их границами <= threshold.
-    Все параметры новой детекции берутся из самой большой детекции в группе.
-    """
-    if not detections:
-        return []
-    merged = []
-    
-    for i, current in enumerate(detections):
-        if current is None:
-            continue
-            
-        to_merge = [current]
-        
-        curr_l, curr_r = current.x, current.x + current.width
-        curr_t, curr_b = current.y, current.y + current.height
-        
-        # Ищем близкие детекции
-        for j in range(i+1, len(detections)):
-            other = detections[j]
-            if other is None:
-                continue
-                
-            other_l, other_r = other.x, other.x + other.width
-            other_t, other_b = other.y, other.y + other.height
-            
-            dx = max(curr_l - other_r, other_l - curr_r)
-            dy = max(curr_t - other_b, other_t - curr_b)
-            
-            if max(dx, dy) <= distance_threshold:
-                to_merge.append(other)
-                detections[j] = None
-        
-        if len(to_merge) > 1:
-            largest_det = max(to_merge, key=lambda d: d.width * d.height)
-            
-            new_l = min(d.x for d in to_merge)
-            new_r = max(d.x + d.width for d in to_merge)
-            new_t = min(d.y for d in to_merge)
-            new_b = max(d.y + d.height for d in to_merge)
-            
-            merged_det = Detection(
-                id=largest_det.id,
-                x=new_l,
-                y=new_t,
-                width=new_r - new_l,
-                height=new_b - new_t,
-                vx=largest_det.vx,
-                vy=largest_det.vy,
-                nf=largest_det.frames_count,
-                indxprev=largest_det.indx_prew,
-                sfr=largest_det.for_report,
-                fnrlt=largest_det.last_frame
-            )
-            merged.append(merged_det)
-        else:
-            merged.append(current)
-    
-    return merged
-
 def remove_nested_detections(detections: list[Detection], overlap_threshold: float):
     """
-    Удаляет детекции, которые почти полностью находятся внутри других (больших) детекций,
-    используя функцию relSiou для вычисления относительной площади пересечения.
+    Removes detections that are almost entirely inside other (larger) detections,
+    using the relSiou function to calculate the relative area of the intersection.
     """
     if not detections:
         return []
 
-    sorted_dets = sorted(detections, key=lambda d: d.width * d.height)
+    sorted_dets = sorted(detections, key=lambda d: d.width * d.height, reverse=True)
     outer_detections = []
     
-    for i, current_det in enumerate(sorted_dets):
+    for current_det in sorted_dets:
         is_nested = False
-        
         x11, y11 = current_det.x, current_det.y
-        x12, y12 = current_det.x + current_det.width, current_det.y + current_det.height
+        x12, y12 = x11 + current_det.width, y11 + current_det.height
         
-        for larger_det in sorted_dets[i+1:]:
-            x21, y21 = larger_det.x, larger_det.y
-            x22, y22 = larger_det.x + larger_det.width, larger_det.y + larger_det.height
+        for outer_det in outer_detections:
+            x21, y21 = outer_det.x, outer_det.y
+            x22, y22 = x21 + outer_det.width, y21 + outer_det.height
             
             Srel = relSiou(x11, y11, x12, y12, x21, y21, x22, y22)
             if Srel >= overlap_threshold:
@@ -341,36 +279,25 @@ def obtainTrajs(detections: list[list[Detection]], dcn: int, ids):
     #print('Exiting function obtainTrajs()')
     return trajs
 
-def trajdiam(trajs, tkey): # измерить, сравнить время и результаты со старой версией
+def trajdiam(trajs, tkey): # измерить, сравнить время и результаты с новой версией
     ''' Computing diameter of the trajectory (maximum distance between points) 
+        Updated 29.11.2024 
         Input: trajs - dictionary with keys as number of trajectory, values as list of points
                tkey - number of the trajectory to compute diameter 
         Return: diameter of trajectory (float)
     ''' 
-    # Check if there is a trajectory for a given tkey
-    if tkey not in trajs or not trajs[tkey]:
-        return 0.0 
-    
-    traj = np.array(trajs[tkey])  # Convert trajectory to numpy array
-    npoints = len(traj)
-
-    # If there are less than two points, the trajectory diameter is 0
-    if npoints < 2:
-        return 0.0
-    
-    # Compute pairwise differences
-    diff = traj[:, np.newaxis, :] - traj[np.newaxis, :, :]
-    
-    # Compute pairwise distances
-    distances = np.sqrt(np.sum(diff**2, axis=2))
-    
-    # Find the indices of the upper triangle (without diagonal)
-    upper_triangle_indices = np.triu_indices(npoints, k=1)
-    
-    if len(upper_triangle_indices[0]) == 0:
-        return 0.0  #If there are no pairs of points, return 0
-    
-    rmax = np.max(distances[upper_triangle_indices])
+    traj = trajs[tkey]
+    rmax = 0
+    npoints = len(traj) 
+    for i in range(0, npoints - 1, 1):
+        for j in range(i, npoints, 1):    
+            x1 = traj[i][0]
+            y1 = traj[i][1]
+            x2 = traj[j][0]
+            y2 = traj[j][1]
+            r = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            if r > rmax:
+                rmax = r
     return rmax
 
 def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_threshold_id): 

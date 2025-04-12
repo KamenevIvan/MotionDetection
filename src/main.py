@@ -20,29 +20,35 @@ def get_video_parameters(cap: cv.VideoCapture):
     height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
     return fps, width, height
 
-def apply_settings_for_night(frame):
+def apply_settings_for_night(bs: cv.BackgroundSubtractorMOG2, frame):
+    bs.setBackgroundRatio(0.5)
     # contrast increase for nighttime video
     frame = image_processing.adaptiveHe(frame, contrast=2.0, tile=(8,8))
     mode = "night vision"
-    return frame, mode
+    return bs, frame, mode
 
-def apply_settings_for_day(frame):
-
+def apply_settings_for_day(bs: cv.BackgroundSubtractorMOG2, frame):
+    bs.setVarThreshold(200.0)
     # correction of gamma (correction of image brightness for daytime - decrease of contrast)
     frame = image_processing.gammac(frame, 150)
+    #bs.setBackgroundRatio(0.95)
     mode = 'day light'
-    return frame, mode
+    return bs, frame, mode
 
-def unpacking(listOfLists):
-    return [item for sublist in listOfLists for item in sublist] 
+def set_background_parameters(bs: cv.BackgroundSubtractorMOG2):
+    bs.setBackgroundRatio(settings.bs_background_ratio)
+    bs.setComplexityReductionThreshold(settings.bs_complexity_reduction_threshold)
+    bs.setVarThresholdGen(settings.bs_var_threshold_gen)
+ 
+    bs.setNMixtures(settings.bs_NMixtures)
+    bs.setShadowThreshold(settings.bs_shadow_threshold)
+    bs.setShadowValue(settings.bs_shadow_value)
+    bs.setVarInit(settings.bs_VarInit)
+    bs.setVarMax(settings.bs_VarMax)
+    bs.setVarMin(settings.bs_VarMin)
 
-def resize_to_fit(image, max_height, max_width):
-    height, width = image.shape[:2]
-    scale = min(max_height / height, max_width / width)
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-    return cv.resize(image, (new_width, new_height))
-
+    return bs
+ 
 # moving objects detector main method 
 def main():
     ''' Detection of moving objects using background subtractor MOG2. 
@@ -59,12 +65,17 @@ def main():
     if not vcap.isOpened():
         print("Cannot open video. Quitting the program.")
         sys.exit()
+    
+    # creation of BackgroundSubstractor object 
+    bs = cv.createBackgroundSubtractorMOG2(history = settings.bs_history, varThreshold = settings.bs_var_threshold, detectShadows = settings.bs_detect_shadows) 
+    bs = set_background_parameters(bs)
+    detector_IO.print_background_parameters(bs)
 
     fps, width, height = get_video_parameters(vcap)
-    bs = image_processing.BackgroundSubtractor(settings.background_history, width, height)
+    detector_IO.print_video_parameters(fps, width, height)
     
     # variables for the detector 
-    frame_counter = 0                     # frame counter
+    frame_counter = 0                               # frame counter
     # execution time measurement variables  
     t0 = 0                               # time of start of processing cycle for each frame  
     t1 = 0.04                            # time of finishing processing each frame 
@@ -86,52 +97,42 @@ def main():
         if not ret:
             print("Cannot read video frame. Video stream may have ended. Exiting.")
             break
-        gray_frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         frame_counter += 1
         
         if frame_counter % settings.check_night_per_frames == 0 or frame_counter == 1:
             nightMode = image_processing.nightVision(frame)
-
         
         #### preprocessing dependent on the scene conditions (day, night, rain, snow, snowfall)
-        
         processing_frame = frame
         mode = "None" 
         if nightMode:
             nf_threshold_id = settings.nf_threshold_night
-            processing_frame, mode = apply_settings_for_night(frame)
+            bs, processing_frame, mode = apply_settings_for_night(bs, frame)
         else:
             nf_threshold_id = settings.nf_threshold_day 
-            processing_frame, mode = apply_settings_for_day(frame)
+            bs, processing_frame, mode = apply_settings_for_day(bs, frame)
         detector_IO.print_console(f'Detected camera mode: {mode}')     
         
-        bs.add_frame(processing_frame)
-        bs.create_background()
-        foreground = bs.extract_foreground(processing_frame)
-
+        # applying background subtraction to obtain foreground 
+        foreground = bs.apply(processing_frame)
 
         framedata = [] 
-        
         if frame_counter > settings.frames_skip:
-            foreground = image_processing.fix_image(foreground)
+            foreground = image_processing.foreground_postprocessing(foreground)
             contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
             framedata = detection_processing.detect(framedata, contours)
 
-                
-        sorted_detections = detection_processing.remove_nested_detections(framedata, 0.8)
-        merged_detections = detection_processing.merge_close_detections(sorted_detections, 10)
-
-        detections.append(merged_detections)
-
-        detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)
+        outer_detections = detection_processing.remove_nested_detections(framedata, 0.6)
+        detections.append(outer_detections)
+        detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         detector_IO.print_console(f'Assigned {nnids} new ids')
         
         # downfilling id for objects with just assigned ids for previous frames
         detections, nidsc = detection_processing.completeIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         detector_IO.print_console(f'{nidsc} objects have their id filled in previous frames')
         
-        # validate objects in detections for suitability for reporting   
-        detections, nobsfr, one, two = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ) 
+        # validate objects in detections for suitability for reporting 
+        detections, nobsfr, one, two = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ
         detector_IO.print_console(f'{nobsfr} objects were marked suitable for reporting')
         detector_IO.print_console(f'current framedata: {detections[len(detections)-1]}')
 
@@ -143,8 +144,6 @@ def main():
     vcap.release()
     cv.destroyAllWindows()
     print('Video processing stopped. Average time for frame processing (s):', ttime / frame_counter)
-    #############################################################Assign IDs: Avg: {sum(assignIDTimeMes) / len(assignIDTimeMes):.5f}, Max: {max(assignIDTimeMes):.5f} | {assignIDTimeMes}\n
-
     
 if __name__ == '__main__':
     main()

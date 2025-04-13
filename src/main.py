@@ -21,16 +21,16 @@ def get_video_parameters(cap: cv.VideoCapture):
     return fps, width, height
 
 def apply_settings_for_night(bs: cv.BackgroundSubtractorMOG2, frame):
-    bs.setBackgroundRatio(0.5)
+    bs.setBackgroundRatio(settings.NIGHT_BACKGROUND_RATIO)
     # contrast increase for nighttime video
-    frame = image_processing.adaptiveHe(frame, contrast=2.0, tile=(8,8))
+    frame = image_processing.adaptiveHe(frame, contrast=settings.NIGHT_CONTRAST_FACTOR, tile=settings.NIGHT_TILE_GRID)
     mode = "night vision"
     return bs, frame, mode
 
 def apply_settings_for_day(bs: cv.BackgroundSubtractorMOG2, frame):
-    bs.setVarThreshold(200.0)
+    bs.setVarThreshold(settings.DAY_VAR_THRESHOLD)
     # correction of gamma (correction of image brightness for daytime - decrease of contrast)
-    frame = image_processing.gammac(frame, 150)
+    frame = image_processing.gammac(frame, settings.DAY_GAMMA_TARGET)
     #bs.setBackgroundRatio(0.95)
     mode = 'day light'
     return bs, frame, mode
@@ -119,10 +119,10 @@ def main():
         framedata = [] 
         if frame_counter > settings.frames_skip:
             foreground = image_processing.foreground_postprocessing(foreground)
-            contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            contours, hierarchy = cv.findContours(foreground, settings.CONTOUR_RETRIEVAL_MODE, settings.CONTOUR_APPROX_METHOD)
             framedata = detection_processing.detect(framedata, contours)
 
-        outer_detections = detection_processing.remove_nested_detections(framedata, 0.6)
+        outer_detections = detection_processing.remove_nested_detections(framedata, settings.NESTED_DETECTION_OVERLAP_THRESHOLD)
         detections.append(outer_detections)
         detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
         detector_IO.print_console(f'Assigned {nnids} new ids')

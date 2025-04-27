@@ -13,6 +13,21 @@
  - OpenCV
  - NumPy
 
+## Установка
+ 1. Клонируйте репозиторий  
+    ```
+    git clone https://github.com/KamenevIvan/MotionDetection.git
+    cd MotionDetection
+    ```
+ 2. Установите зависимости  
+    ```
+    pip install -r requirements.txt
+    ```
+ 4. Настройте параметры в `./src/settings.py`
+ 5. Запустите основной скрипт
+    `python ./src/main.py`
+
+
 ## Основные модули
  1. `main.py` - Главный исполняемый файл  
     Назначение: 

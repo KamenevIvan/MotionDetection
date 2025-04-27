@@ -1,3 +1,5 @@
+import cv2 as cv
+
 ######## detector settings (global variables) ############
 
 buffer_size = 3000
@@ -32,12 +34,46 @@ bs_VarMax = 75.0                           # default 75.0
 bs_VarMin = 4.0                            # default 4.0
 ######################################################################################################################################
 
+# Параметры ночного режима
+NIGHT_BACKGROUND_RATIO = 0.5         # из apply_settings_for_night()
+NIGHT_CONTRAST_FACTOR = 2.0          # из frame = adaptiveHe(..., contrast=2.0)
+NIGHT_TILE_GRID = (8, 8)             # из adaptiveHe(..., tile=(8,8))
+
+# Параметры дневного режима 
+DAY_VAR_THRESHOLD = 200.0            # из apply_settings_for_day()
+DAY_GAMMA_TARGET = 150               # из gammac(..., tavg=155.0)
+
+# Морфологические операции
+EROSION_KERNEL_SIZE = (3, 3)         # из cv.getStructuringElement(2, (3,3))
+DILATION_KERNEL_SIZE = (10, 20)      # из cv.getStructuringElement(2, (10,20))
+DILATION_ITERATIONS = 2              # из cv.dilate(..., iterations=2)
+
+# CLAHE параметры
+ADAPTIVE_HE_CONTRAST = 2.0           # из createCLAHE(clipLimit=2.0)
+ADAPTIVE_HE_TILE_GRID = (8, 8)       # из tileGridSize=(8,8)
+
+# Обработка контуров
+NESTED_DETECTION_OVERLAP_THRESHOLD = 0.6  # из remove_nested_detections(..., 0.6)
+CONTOUR_RETRIEVAL_MODE = cv.RETR_EXTERNAL  # из findContours(..., cv.RETR_EXTERNAL)
+CONTOUR_APPROX_METHOD = cv.CHAIN_APPROX_SIMPLE  # из findContours(..., cv.CHAIN_APPROX_SIMPLE)
+
+# Визуализация
+BOX_LINE_THICKNESS = 2               # из cv.rectangle(..., thickness=2)
+TEXT_FONT_SCALE = 0.8                # из cv.putText(..., font_scale=0.8)
+TEXT_FONT_THICKNESS = 2              # из cv.putText(..., thickness=2)
+
+
+
+
+##########################      ПАРАМЕТРЫ ЗАПУСКА          ############################################
+
+
 enable_print_console = False
-enable_output_file = False
+enable_output_file = True
 enable_show_boxes = True
 enable_save_frames = False
 
-inputfile = "vki.avi"  
+inputfile = "PolarBear3.mp4"  
 outputfile = 'mot-results.txt'
 output_frame_dir = r"F:\VScode\NSU\DetectMotion\VKI_CAMERAS_TESTS\magadan\frames"
 box_color = (0, 0, 255)

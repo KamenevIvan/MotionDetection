@@ -14,11 +14,11 @@ def foreground_postprocessing(foreground):
     ret, fg_t = cv.threshold(foreground, 128, 255, cv.THRESH_BINARY) 
         
     # erosion of foreground for noise removal 
-    fg_e = cv.erode(fg_t, cv.getStructuringElement(2, (3, 3))) 
+    fg_e = cv.erode(fg_t, cv.getStructuringElement(2, settings.EROSION_KERNEL_SIZE)) 
     
     # dilation for filling the gaps 
-    dstr = cv.getStructuringElement(2, (10, 20)) # was 9,18
-    return cv.dilate(fg_e, dstr, iterations=2)
+    dstr = cv.getStructuringElement(2, settings.DILATION_KERNEL_SIZE) # was 9,18
+    return cv.dilate(fg_e, dstr, iterations=settings.DILATION_ITERATIONS)
 
 def nightVision(frame):
     ''' This function determines if picture was taken by a camera in
@@ -68,7 +68,7 @@ def gammac(frame, tavg = 155.0):
     #cv.putText(framegc, text, (20, 50), 0, 2, (255, 0, 0), 3)    
     return framegc
 
-def adaptiveHe(frame, contrast=2.0, tile=(8,8)):
+def adaptiveHe(frame, contrast=settings.ADAPTIVE_HE_CONTRAST, tile=(8,8)):
     ''' CLAHE histogram equalization of BGR image
         correction of Y channel of YCrCb image
         
@@ -78,7 +78,7 @@ def adaptiveHe(frame, contrast=2.0, tile=(8,8)):
         Returns: BGR frame with corrected histogram 
     ''' 
     # CLAHE class object creation 
-    clahe = cv.createCLAHE(clipLimit=contrast, tileGridSize=(8,8))
+    clahe = cv.createCLAHE(clipLimit=contrast, tileGridSize=settings.ADAPTIVE_HE_TILE_GRID)
     # convert BGR into YCrCb color space 
     ycrcb = cv.cvtColor(frame, cv.COLOR_BGR2YCrCb)
     # split the image into 3 arrays 

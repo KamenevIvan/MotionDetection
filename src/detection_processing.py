@@ -478,4 +478,3 @@ def validateObjs(detections: list[list[Detection]], frame_counter, fps, nf_thres
                     current_detection.for_report = True
                     nobsfr += 1
     return detections, nobsfr, trajdiamTimeMes, trajdiamOldTimeMes
-

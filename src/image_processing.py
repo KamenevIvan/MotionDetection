@@ -18,16 +18,16 @@ def resize_to_fit(image, max_height, max_width):
 
 class BackgroundSubtractor_HSV:
     def __init__(self, buffer_size, frame_width, frame_height):
-        self.buffer_size = buffer_size
-        self.buffer = collections.deque(maxlen=buffer_size)
+        self.buffer_size = getattr(settings, 'buffer_size', buffer_size)
+        self.buffer = collections.deque(maxlen=self.buffer_size)
         self.background = None
         self.sum_frames = np.zeros((frame_height, frame_width, 3), dtype=np.float32)
 
-        self.threshold_h = 120 #120
-        self.threshold_s = 30 #80
-        self.threshold_v = 100 # 90
-        self.blur = 5
-        self.minimum_are_contours = 50
+        self.threshold_h = getattr(settings, 'threshold_h', 120)
+        self.threshold_s = getattr(settings, 'threshold_s', 30)
+        self.threshold_v = getattr(settings, 'threshold_v', 100)
+        self.blur = getattr(settings, 'blur', 5)
+        self.minimum_are_contours = getattr(settings, 'minimum_are_contours', 50)
 
     def add_frame(self, frame):
         if len(self.buffer) == self.buffer_size:
@@ -63,7 +63,7 @@ class BackgroundSubtractor_HSV:
         #combined= cv.hconcat([resize_to_fit(self.background[:,:,0], 1280, 720), resize_to_fit(blurred[:,:,0], 1280,720), resize_to_fit(foreground[:,:,0], 1280,720)])
         combined= cv.hconcat([resize_to_fit(main_objects_h, 1280, 720), resize_to_fit(main_objects_s, 1280,720)])
         cv.imshow('Combined', combined)
-        cv.waitKey()
+        cv.waitKey(1)
         
         main_objects = cv.bitwise_and(main_objects_h, main_objects_s)
         main_objects = cv.bitwise_or(main_objects, main_objects_v)
@@ -77,18 +77,30 @@ class BackgroundSubtractor_HSV:
                 cv.drawContours(mask, [contour], -1, 255, cv.FILLED)
 
         return mask
+    
+    def set_params(self, threshold_h=None, threshold_s=None, threshold_v=None, blur=None, min_area=None):
+        if threshold_h is not None:
+            self.threshold_h = threshold_h
+        if threshold_s is not None:
+            self.threshold_s = threshold_s
+        if threshold_v is not None:
+            self.threshold_v = threshold_v
+        if blur is not None:
+            self.blur = blur
+        if min_area is not None:
+            self.minimum_are_contours = min_area
 
 class BackgroundSubtractor_YCbCr:
     def __init__(self, buffer_size, frame_width, frame_height):
-        self.buffer_size = buffer_size
-        self.buffer = collections.deque(maxlen=buffer_size)
+        self.buffer_size = getattr(settings, 'buffer_size', buffer_size)
+        self.buffer = collections.deque(maxlen=self.buffer_size)
         self.background = None
         self.sum_frames = np.zeros((frame_height, frame_width, 3), dtype=np.float32)
 
-        self.threshold_y = 50   # Порог для яркости (Y)
-        self.threshold_chroma = 15  # Порог для цветовых компонент (Cb, Cr)
-        self.blur = 5          # Размер размытия
-        self.min_contour_area = 50  # Минимальная площадь контура
+        self.threshold_y = getattr(settings, 'threshold_y', 50)
+        self.threshold_chroma = getattr(settings, 'threshold_chroma', 15)
+        self.blur = getattr(settings, 'blur', 5)
+        self.min_contour_area = getattr(settings, 'minimum_are_contours', 50)
 
     def add_frame(self, frame):
         if len(self.buffer) == self.buffer_size:
@@ -136,18 +148,28 @@ class BackgroundSubtractor_YCbCr:
                 cv.drawContours(result_mask, [contour], -1, 255, cv.FILLED)
 
         return result_mask
+    
+    def set_params(self, threshold_y=None, threshold_chroma=None, blur=None, min_area=None):
+        if threshold_y is not None:
+            self.threshold_y = threshold_y
+        if threshold_chroma is not None:
+            self.threshold_s = threshold_chroma
+        if blur is not None:
+            self.blur = blur
+        if min_area is not None:
+            self.minimum_are_contours = min_area
 
 class BackgroundSubtractor:
     def __init__(self, buffer_size, frame_width, frame_height):
-        self.buffer_size = buffer_size
-        self.buffer = collections.deque(maxlen=buffer_size)
+        self.buffer_size = getattr(settings, 'buffer_size', buffer_size)
+        self.buffer = collections.deque(maxlen=self.buffer_size)
         self.background = None
         self.sum_frames = np.zeros((frame_height, frame_width), dtype=np.float32)
 
-        # Параметры обработки
-        self.threshold_value = 50 #45
-        self.blur = 5 #5
-        self.minimum_are_contours = 50 #50
+        # Параметры из settings.py с fallback-значениями
+        self.threshold_value = getattr(settings, 'threshold_value', 50)
+        self.blur = getattr(settings, 'blur', 5)
+        self.minimum_are_contours = getattr(settings, 'minimum_are_contours', 50)
 
     def add_frame(self, frame):
         if len(self.buffer) == self.buffer_size:
@@ -186,14 +208,22 @@ class BackgroundSubtractor:
 
         return mask
     
+    def set_params(self, threshold=None, blur=None, min_area=None):
+        if threshold is not None:
+            self.threshold_value = threshold
+        if blur is not None:
+            self.blur = blur
+        if min_area is not None:
+            self.minimum_are_contours = min_area
+
 class BackgroundSubtractor_Fast:
     def __init__(self, buffer_size, frame_width, frame_height):
-        self.buffer_size = buffer_size
-        self.buffer = collections.deque(maxlen=buffer_size)
+        self.buffer_size = getattr(settings, 'buffer_size', buffer_size)
+        self.buffer = collections.deque(maxlen=self.buffer_size)
         self.background = None
         self.sum_frames = np.zeros((frame_height, frame_width), dtype=np.float32)
 
-        self.threshold_value = 70
+        self.threshold_value = getattr(settings, 'threshold_value', 70)
 
     def add_frame(self, frame):
         if len(self.buffer) == self.buffer_size:

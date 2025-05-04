@@ -5,6 +5,8 @@ import sys
 import base64
 import json
 import collections
+import optuna
+from functools import partial
 
 import settings
 import detector_IO
@@ -13,6 +15,133 @@ import detection_processing
 
 ######## moving objects detector module #################
 #   Version 8 from 29.11.2024 detection changed 12.12.2024      
+
+class ParameterOptimizer:
+    def __init__(self, video_path):
+        self.video_path = video_path
+        self.cap = cv.VideoCapture(video_path)
+        if not self.cap.isOpened():
+            raise ValueError("Cannot open video for optimization")
+            
+        self.fps, self.width, self.height = self._get_video_parameters()
+        
+    def _get_video_parameters(self):
+        fps = self.cap.get(cv.CAP_PROP_FPS)
+        width = int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))
+        height = int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+        return fps, width, height
+        
+    def evaluate_params(self, params, max_frames=50):
+        """Evaluate detector parameters on sample frames"""
+        if params['color_space'] == 'HSV':
+            detector = image_processing.BackgroundSubtractor_HSV(
+                buffer_size=params['buffer_size'],
+                frame_width=self.width,
+                frame_height=self.height
+            )
+            detector.threshold_h = params['threshold_h']
+            detector.threshold_s = params['threshold_s']
+            detector.threshold_v = params['threshold_v']
+        elif params['color_space'] == 'YCbCr':
+            detector = image_processing.BackgroundSubtractor_YCbCr(
+                buffer_size=params['buffer_size'],
+                frame_width=self.width,
+                frame_height=self.height
+            )
+            detector.threshold_y = params['threshold_y']
+            detector.threshold_chroma = params['threshold_chroma']
+        else:  # GRAY
+            detector = image_processing.BackgroundSubtractor(
+                buffer_size=params['buffer_size'],
+                frame_width=self.width,
+                frame_height=self.height
+            )
+            detector.threshold_value = params['threshold']
+            
+        detector.blur = params['blur']
+        detector.minimum_are_contours = params['min_area']
+
+        merge_distance_threshold = params.get('merge_distance_threshold', 5)
+        overlap_threshold = params.get('overlap_threshold', 0.6)
+        
+        total_objects = 0
+        processing_time = 0
+        frame_count = 0
+        
+        while frame_count < max_frames:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+                
+            start_time = time.time()
+            
+            detector.add_frame(frame)
+            detector.create_background()
+            foreground = detector.extract_foreground(frame)
+            
+            contours, _ = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            
+            framedata = []
+            for contour in contours:
+                area = cv.contourArea(contour)
+                if area > params['min_area']:
+                    x, y, w, h = cv.boundingRect(contour)
+                    detection = detection_processing.Detection(
+                        id=-1, x=x, y=y, width=w, height=h, 
+                        vx=0, vy=0, nf=1, indxprev=-1, sfr=False, fnrlt=-1
+                    )
+                    framedata.append(detection)
+            
+            merged_detections = detection_processing.merge_close_detections(framedata, merge_distance_threshold)
+            final_detections = detection_processing.remove_nested_detections(merged_detections, overlap_threshold)
+            
+            processing_time += time.time() - start_time
+            total_objects += len(final_detections)
+            frame_count += 1
+
+        self.cap.set(cv.CAP_PROP_POS_FRAMES, 0)
+
+        avg_objects = total_objects / frame_count if frame_count > 0 else 0
+        avg_time = processing_time / frame_count if frame_count > 0 else 0
+
+        score = avg_objects / (1 + avg_time)
+        return score
+        
+    def optimize(self, n_trials=100):
+        """Optimize detector parameters using Optuna"""
+        study = optuna.create_study(direction='maximize')
+        study.optimize(partial(self._objective), n_trials=n_trials)
+        return study.best_params
+        
+    def _objective(self, trial):
+        """Objective function for Optuna"""
+        params = {
+            'color_space': trial.suggest_categorical('color_space', ['HSV', 'YCbCr', 'GRAY']),
+            'buffer_size': trial.suggest_int('buffer_size', 10, 100),
+            'blur': trial.suggest_int('blur', 3, 15, step=2),
+            'min_area': trial.suggest_int('min_area', 10, 200),
+            
+            'merge_distance_threshold': trial.suggest_int('merge_distance_threshold', 1, 20),
+            'overlap_threshold': trial.suggest_float('overlap_threshold', 0.3, 0.9)
+        }
+        
+        if params['color_space'] == 'HSV':
+            params.update({
+                'threshold_h': trial.suggest_int('threshold_h', 50, 200),
+                'threshold_s': trial.suggest_int('threshold_s', 10, 100),
+                'threshold_v': trial.suggest_int('threshold_v', 50, 200)
+            })
+        elif params['color_space'] == 'YCbCr':
+            params.update({
+                'threshold_y': trial.suggest_int('threshold_y', 10, 100),
+                'threshold_chroma': trial.suggest_int('threshold_chroma', 5, 50)
+            })
+        else:  # GRAY
+            params.update({
+                'threshold': trial.suggest_int('threshold', 10, 100)
+            })
+            
+        return self.evaluate_params(params)
 
 def set_background_parameters(bs: cv.BackgroundSubtractorMOG2):
     bs.setBackgroundRatio(0.9)              # default 0.9, pixel constant for BgR * History is added to background model  ~ background update rate 
@@ -62,6 +191,19 @@ def resize_to_fit(image, max_height, max_width):
     new_height = int(height * scale)
     return cv.resize(image, (new_width, new_height))
 
+def load_optimized_params():
+    """Load optimized parameters from file if exists"""
+    try:
+        with open('optimized_params.json', 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+def save_optimized_params(params):
+    """Save optimized parameters to file"""
+    with open('optimized_params.json', 'w') as f:
+        json.dump(params, f, indent=2)
+
 # moving objects detector main method 
 def main():
     ''' Detection of moving objects using background subtractor MOG2. 
@@ -73,6 +215,20 @@ def main():
         Functions required: nightVision(), gammac(), adaptiveHe(), putElementCL(), 
                             assignIDs(), completeIDs(), validateObjs(), getIDsfr()                             
     '''
+
+    if settings.ENABLE_ANNOTATION_OPTIMIZATION:
+        print("Running parameter optimization...")
+        optimizer = ParameterOptimizer(settings.inputfile)
+        optimized_params = optimizer.optimize(n_trials=settings.OPTIMIZATION_TRIALS)
+        save_optimized_params(optimized_params)
+        print("Optimization complete. Best parameters:", optimized_params)
+    else:
+        optimized_params = load_optimized_params()
+        if optimized_params:
+            print("Loaded optimized parameters:", optimized_params)
+
+    merge_distance_threshold = optimized_params.get('merge_distance_threshold', 5) if optimized_params else 5
+    overlap_threshold = optimized_params.get('overlap_threshold', 0.6) if optimized_params else 0.6
 
     nightModeTimeMes = []
     fixImgTimeMes = []
@@ -92,7 +248,6 @@ def main():
     BackForeTimeMes_YCrCb = []
     BackForeTimeMes_HSV = []
 
-
     vcap = cv.VideoCapture(settings.inputfile)
     if not vcap.isOpened():
         print("Cannot open video. Quitting the program.")
@@ -109,7 +264,24 @@ def main():
     bs_fast = image_processing.BackgroundSubtractor_Fast(settings.background_history, width, height)
     bs_YCrCb = image_processing.BackgroundSubtractor_YCbCr(settings.background_history, width, height)
     bs_hsv = image_processing.BackgroundSubtractor_HSV(settings.background_history, width, height)
-    #detector_IO.print_video_parameters(fps, width, height)
+    
+    # Apply optimized parameters if available
+    if optimized_params:
+        if optimized_params['color_space'] == 'HSV':
+            bs_hsv.threshold_h = optimized_params.get('threshold_h', bs_hsv.threshold_h)
+            bs_hsv.threshold_s = optimized_params.get('threshold_s', bs_hsv.threshold_s)
+            bs_hsv.threshold_v = optimized_params.get('threshold_v', bs_hsv.threshold_v)
+            bs_hsv.blur = optimized_params.get('blur', bs_hsv.blur)
+            bs_hsv.minimum_are_contours = optimized_params.get('min_area', bs_hsv.minimum_are_contours)
+        elif optimized_params['color_space'] == 'YCbCr':
+            bs_YCrCb.threshold_y = optimized_params.get('threshold_y', bs_YCrCb.threshold_y)
+            bs_YCrCb.threshold_chroma = optimized_params.get('threshold_chroma', bs_YCrCb.threshold_chroma)
+            bs_YCrCb.blur = optimized_params.get('blur', bs_YCrCb.blur)
+            bs_YCrCb.min_contour_area = optimized_params.get('min_area', bs_YCrCb.min_contour_area)
+        else:  # GRAY
+            bs_gray.threshold_value = optimized_params.get('threshold', bs_gray.threshold_value)
+            bs_gray.blur = optimized_params.get('blur', bs_gray.blur)
+            bs_gray.minimum_are_contours = optimized_params.get('min_area', bs_gray.minimum_are_contours)
     
     # variables for the detector 
     frame_counter = 0                               # frame counter
@@ -155,13 +327,10 @@ def main():
             bs, processing_frame, mode = apply_settings_for_day(bs, frame)
         detector_IO.print_console(f'Detected camera mode: {mode}')     
         
-        #processing_frame = image_processing.enhance_frame(frame)
-
         start = time.time()
         foreground = bs.apply(processing_frame)
         applyTimeMes.append(time.time()-start)
 
-        #if frame_counter % settings.update_background_per_frames == 0 or frame_counter == 1:
         bs_gray.add_frame(processing_frame)
         bs_gray.create_background()
         start = time.time()
@@ -186,10 +355,6 @@ def main():
         foreground_hsv = bs_hsv.extract_foreground(processing_frame)
         BackForeTimeMes_HSV.append(time.time()-start)
 
-        #combined_foreground = cv.hconcat([resize_to_fit(foreground_ycrcb, 1920, 1080), resize_to_fit(foreground_hsv, 1920, 1080)])
-        #cv.imshow('Combined Foreground', combined_foreground)
-        #cv.waitKey(20)
-
         framedata = [] 
         
         if frame_counter > settings.frames_skip:
@@ -197,9 +362,6 @@ def main():
             foreground = image_processing.fix_image_old(foreground)# ИЗМЕРИТЬ
             foreground_ = image_processing.fix_image(foreground)# ИЗМЕРИТЬ
             fixImgTimeMes.append(time.time()-start)
-            #combined_foreground = cv.hconcat([resize_to_fit(foreground_bs, 1920, 1080), resize_to_fit(foreground, 1920, 1080)])
-            #cv.imshow('Combined Foreground', combined_foreground)
-            #cv.waitKey(20)
 
             start = time.time()
             contours, hierarchy = cv.findContours(foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE) # ИЗМЕРИТЬ
@@ -209,9 +371,9 @@ def main():
             framedata = detection_processing.detect(framedata, contours)# ИЗМЕРИТЬ
             detectTimeMes.append(time.time()-start)
 
-                
-        #merged_detections = detection_processing.merge_close_detections(framedata, 5)
-        outer_detections = detection_processing.remove_nested_detections(framedata, 0.6)
+        merged_detections = detection_processing.merge_close_detections(framedata, merge_distance_threshold)
+        outer_detections = detection_processing.remove_nested_detections(merged_detections, overlap_threshold)
+        
         detections.append(outer_detections)
         start = time.time()
         detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
@@ -254,29 +416,6 @@ def main():
         Custom YCbCr: Avg: {sum(BackForeTimeMes_YCrCb) / len(BackForeTimeMes_YCrCb):.5f}, Max: {max(BackForeTimeMes_YCrCb):.5f} | {BackForeTimeMes_YCrCb}\n
         Custom HSV: Avg: {sum(BackForeTimeMes_HSV) / len(BackForeTimeMes_HSV):.5f}, Max: {max(BackForeTimeMes_HSV):.5f} | {BackForeTimeMes_HSV}\n
         """)
-    '''
-    with open("timeResults.txt", "w") as file:  
-        file.write(f"""Night mode: Avg: {sum(nightModeTimeMes) / len(nightModeTimeMes):.5f}, Max: {max(nightModeTimeMes):.5f} | {nightModeTimeMes}\n
-        Fix Img: Avg: {sum(fixImgTimeMes) / len(fixImgTimeMes):.5f}, Max: {max(fixImgTimeMes):.5f} | {fixImgTimeMes}\n
-        Find contours: Avg: {sum(findContersTimeMes) / len(findContersTimeMes):.5f}, Max: {max(findContersTimeMes):.5f} | {findContersTimeMes}\n
-        Detect: Avg: {sum(detectTimeMes) / len(detectTimeMes):.5f}, Max: {max(detectTimeMes):.5f} | {detectTimeMes}\n
-        
-        Complete IDs: Avg: {sum(completeIDTimeMes) / len(completeIDTimeMes):.5f}, Max: {max(completeIDTimeMes):.5f} | {completeIDTimeMes}\n
-        Validate Objects: Avg: {sum(validateObjTimeMes) / len(validateObjTimeMes):.5f}, Max: {max(validateObjTimeMes):.5f} | {validateObjTimeMes}\n
-        Apply: Avg: {sum(applyTimeMes) / len(applyTimeMes):.5f}, Max: {max(applyTimeMes):.5f} | {applyTimeMes}\n
-        BackFore: Avg: {sum(BackForeTimeMes) / len(BackForeTimeMes):.5f}, Max: {max(BackForeTimeMes):.5f} | {BackForeTimeMes}\n
-        trajdiam: Avg: {sum(unpacking(trajdiamTimeMes)) / len(unpacking(trajdiamTimeMes)):.5f}, Max: {max(unpacking(trajdiamTimeMes)):.5f} | {unpacking(trajdiamTimeMes)}\n
-        trajdiamOld: Avg: {sum(unpacking(trajdiamOldTimeMes)) / len(unpacking(trajdiamOldTimeMes)):.5f}, Max: {max(unpacking(trajdiamOldTimeMes)):.5f} | {unpacking(trajdiamOldTimeMes)}\n
-        """)
-        '''
 
-        #relSiou: Avg: {sum(unpacking(relSiouTimeMes)) / len(unpacking(relSiouTimeMes)):.5f}, Max: {max(unpacking(relSiouTimeMes)):.5f} | {unpacking(relSiouTimeMes)}\n
-        #relSiouOld: Avg: {sum(unpacking(relSiouOldTimeMes)) / len(unpacking(relSiouOldTimeMes)):.5f}, Max: {max(unpacking(relSiouOldTimeMes)):.5f} | {unpacking(relSiouOldTimeMes)}\n
-
-    #############################################################Assign IDs: Avg: {sum(assignIDTimeMes) / len(assignIDTimeMes):.5f}, Max: {max(assignIDTimeMes):.5f} | {assignIDTimeMes}\n
-
-    
 if __name__ == '__main__':
     main()
-
-

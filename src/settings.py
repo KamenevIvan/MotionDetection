@@ -69,7 +69,7 @@ TEXT_FONT_THICKNESS = 2              # из cv.putText(..., thickness=2)
 
 
 enable_print_console = False
-enable_output_file = True
+enable_output_file = False
 enable_show_boxes = True
 enable_save_frames = False
 

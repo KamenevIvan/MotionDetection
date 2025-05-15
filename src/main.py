@@ -5,6 +5,8 @@ import sys
 import base64
 import json
 import collections
+import argparse
+import os
 
 import settings
 import detector_IO
@@ -18,7 +20,14 @@ def get_video_parameters(cap: cv.VideoCapture):
     fps = cap.get(cv.CAP_PROP_FPS)
     width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
-    return fps, width, height
+    frame_count = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+    return fps, width, height, frame_count
+
+def print_progress(frame_counter, total_frames, additional_info=""):
+    """Выводит прогресс обработки в процентах"""
+    percent = (frame_counter / total_frames) * 100
+    sys.stdout.write(f"\rProgress: {percent:.1f}% | {additional_info}")
+    sys.stdout.flush()
 
 def apply_settings_for_night(bs: cv.BackgroundSubtractorMOG2, frame):
     bs.setBackgroundRatio(settings.NIGHT_BACKGROUND_RATIO)
@@ -50,59 +59,71 @@ def set_background_parameters(bs: cv.BackgroundSubtractorMOG2):
     return bs
  
 # moving objects detector main method 
-def main():
+def main(input_file=None, output_file=None, output_video=None):
     ''' Detection of moving objects using background subtractor MOG2. 
-        Version 7 created 28.11.2024  
-        Reports: new moving objects, existing moving objects every report_period seonds
-        Report format: [[x0, y0, x1, y1, trackID, classID, confidence, bestcropBase64], ...]             
-        Input: 
-        Output: json files with results recorded every report_period seconds for every object detected 
-        Functions required: nightVision(), gammac(), adaptiveHe(), putElementCL(), 
-                            assignIDs(), completeIDs(), validateObjs(), getIDsfr()                             
+        Modified to support progress reporting.
     '''
-
+    # Переопределяем настройки, если переданы аргументы
+    if input_file:
+        settings.inputfile = input_file
+    if output_file:
+        settings.outputfile = output_file
+    
     vcap = cv.VideoCapture(settings.inputfile)
     if not vcap.isOpened():
         print("Cannot open video. Quitting the program.")
         sys.exit()
     
+    # Получаем параметры видео
+    fps, width, height, total_frames = get_video_parameters(vcap)
+    if total_frames <= 0:
+        print("Error: Could not determine total frame count.")
+        sys.exit()
+    
+    # Инициализируем VideoWriter для сохранения результата
+    if output_video:
+        fourcc = cv.VideoWriter_fourcc(*'mp4v')
+        out = cv.VideoWriter(output_video, fourcc, fps, (width, height))
+    
     # creation of BackgroundSubstractor object 
-    bs = cv.createBackgroundSubtractorMOG2(history = settings.bs_history, varThreshold = settings.bs_var_threshold, detectShadows = settings.bs_detect_shadows) 
+    bs = cv.createBackgroundSubtractorMOG2(history=settings.bs_history, 
+                                         varThreshold=settings.bs_var_threshold, 
+                                         detectShadows=settings.bs_detect_shadows) 
     bs = set_background_parameters(bs)
     detector_IO.print_background_parameters(bs)
-
-    fps, width, height = get_video_parameters(vcap)
     detector_IO.print_video_parameters(fps, width, height)
     
     # variables for the detector 
-    frame_counter = 0                               # frame counter
-    # execution time measurement variables  
-    t0 = 0                               # time of start of processing cycle for each frame  
-    t1 = 0.04                            # time of finishing processing each frame 
-    ttime = 0                            # total processing time of frames   
+    frame_counter = 0
+    t0 = time.perf_counter()
+    t1 = t0 + 0.04
+    ttime = 0
     
     detections = collections.deque(maxlen=settings.buffer_size)
     detector_IO.clear_output_file(settings.outputfile)
    
     nightMode = False
+    print(f"\nProcessing video: {os.path.basename(settings.inputfile)}")
+    print(f"Total frames: {total_frames}")
+    
     while vcap.isOpened():
-        # execution time and fps for previous frame
-        dt = t1 - t0          # time for processing previous frame
-        fpsp = 1 / dt         # fps for video processing 
-        ttime += dt           # total time 
-        detector_IO.print_console(f'processing speed fps: {fpsp}')
-        t0 = time.perf_counter()
-                
+        dt = t1 - t0
+        fpsp = 1 / dt
+        ttime += dt
+        
+        # Выводим прогресс обработки
+        processing_info = f"Frame: {frame_counter}/{total_frames} | Speed: {fpsp:.1f}fps"
+        print_progress(frame_counter, total_frames, processing_info)
+        
         ret, frame = vcap.read()
         if not ret:
-            print("Cannot read video frame. Video stream may have ended. Exiting.")
             break
         frame_counter += 1
         
         if frame_counter % settings.check_night_per_frames == 0 or frame_counter == 1:
             nightMode = image_processing.nightVision(frame)
         
-        #### preprocessing dependent on the scene conditions (day, night, rain, snow, snowfall)
+        # Обработка кадра (без изменений)
         processing_frame = frame
         mode = "None" 
         if nightMode:
@@ -111,9 +132,7 @@ def main():
         else:
             nf_threshold_id = settings.nf_threshold_day 
             bs, processing_frame, mode = apply_settings_for_day(bs, frame)
-        detector_IO.print_console(f'Detected camera mode: {mode}')     
         
-        # applying background subtraction to obtain foreground 
         foreground = bs.apply(processing_frame)
 
         framedata = [] 
@@ -124,28 +143,52 @@ def main():
 
         outer_detections = detection_processing.remove_nested_detections(framedata, settings.NESTED_DETECTION_OVERLAP_THRESHOLD)
         detections.append(outer_detections)
-        detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
-        detector_IO.print_console(f'Assigned {nnids} new ids')
+        detections, nnids, one, two = detection_processing.assignIDs(detections, nf_threshold_id)
         
-        # downfilling id for objects with just assigned ids for previous frames
-        detections, nidsc = detection_processing.completeIDs(detections, nf_threshold_id)# ИЗМЕРИТЬ
-        detector_IO.print_console(f'{nidsc} objects have their id filled in previous frames')
-        
-        # validate objects in detections for suitability for reporting 
-        detections, nobsfr, one, two = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id) # ИЗМЕРИТЬ
-        detector_IO.print_console(f'{nobsfr} objects were marked suitable for reporting')
-        detector_IO.print_console(f'current framedata: {detections[len(detections)-1]}')
+        detections, nidsc = detection_processing.completeIDs(detections, nf_threshold_id)
+        detections, nobsfr, one, two = detection_processing.validateObjs(detections, frame_counter, fps, nf_threshold_id)
 
         detector_IO.print_frame_detection(settings.outputfile, detections[len(detections)-1], frame_counter)
         frame_with_boxes = detector_IO.show_boxes(frame.copy(), detections[len(detections)-1], fps)
-        detector_IO.save_frame_with_boxes(frame_with_boxes, frame_counter, int(len(str(vcap.get(cv.CAP_PROP_FRAME_COUNT)))))     
+        
+        if output_video:
+            out.write(frame_with_boxes)
+            
+        detector_IO.save_frame_with_boxes(frame_with_boxes, frame_counter, int(len(str(total_frames))))
         
         t1 = time.perf_counter()
-    vcap.release()
-    cv.destroyAllWindows()
-    print('Video processing stopped. Average time for frame processing (s):', ttime / frame_counter)
     
+    # Завершаем вывод прогресса
+    print_progress(frame_counter, total_frames, "Completed!")
+    print(f"\nAverage processing speed: {frame_counter/ttime:.1f} fps")
+    
+    # Освобождаем ресурсы
+    vcap.release()
+    if output_video:
+        out.release()
+    cv.destroyAllWindows()
+
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Moving objects detection')
+    parser.add_argument('--input', help='Input video file', required=True)
+    parser.add_argument('--output', help='Output JSON file', required=True)
+    parser.add_argument('--video', help='Output video file with detections', required=True)
+    args = parser.parse_args()
+    
+    # Проверяем существование входного файла
+    if not os.path.exists(args.input):
+        print(f"Error: Input file {args.input} does not exist")
+        sys.exit(1)
+        
+    # Проверяем доступность папки для выходных файлов
+    output_dir = os.path.dirname(args.output)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+    
+    try:
+        main(input_file=args.input, output_file=args.output, output_video=args.video)
+    except Exception as e:
+        print(f"Error during processing: {str(e)}")
+        sys.exit(1)
 
 

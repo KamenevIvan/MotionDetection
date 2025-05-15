@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motion Detector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .upload-container {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .progress-container {
+            display: none;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .result-container {
+            display: none;
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        video {
+            width: 100%;
+            margin-top: 10px;
+        }
+        .tasks-info {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .task-item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+        .active-task {
+            background-color: #e7f4ff;
+        }
+        .completed-task {
+            background-color: #e8f5e9;
+        }
+        .error-task {
+            background-color: #ffebee;
+        }
+    </style>
+</head>
+<body>
+    <h1>Video Motion Detector</h1>
+    
+    <div class="tasks-info">
+        <h3>System Status</h3>
+        <p>Active tasks: <span id="activeTasks">0</span></p>
+        <p>Waiting tasks: <span id="waitingTasks">0</span></p>
+        <p>Completed tasks: <span id="completedTasks">0</span></p>
+        <p>Total tasks: <span id="totalTasks">0</span></p>
+    </div>
+    
+    <div class="upload-container">
+        <h2>Upload Video</h2>
+        <input type="file" id="fileInput" accept=".mp4,.avi,.mov">
+        <button id="uploadBtn">Upload and Process</button>
+    </div>
+    
+    <div id="tasksList"></div>
+    
+    <div class="progress-container" id="progressContainer">
+        <h3>Processing: <span id="fileName"></span></h3>
+        <div class="progress-bar">
+            <div class="progress" id="progressBar"></div>
+        </div>
+        <p>Progress: <span id="progressText">0</span>%</p>
+        <p>Started at: <span id="startTime"></span></p>
+    </div>
+    
+    <div class="result-container" id="resultContainer">
+        <h3>Processed Video: <span id="processedFileName"></span></h3>
+        <p>Completed at: <span id="endTime"></span></p>
+        <video controls id="processedVideo">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+    
+    <script>
+        let currentTaskId = null;
+        let statusUpdateTimer = null;
+        let progressCheckTimer = null;
+        
+        // Обновляем статус системы
+        function updateSystemStatus() {
+            fetch('/tasks')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (document.getElementById('activeTasks')) {
+                        document.getElementById('activeTasks').textContent = data.task_info?.active || 0;
+                    }
+                    if (document.getElementById('waitingTasks')) {
+                        document.getElementById('waitingTasks').textContent = data.task_info?.waiting || 0;
+                    }
+                    if (document.getElementById('completedTasks')) {
+                        document.getElementById('completedTasks').textContent = data.task_info?.completed || 0;
+                    }
+                    if (document.getElementById('totalTasks')) {
+                        document.getElementById('totalTasks').textContent = data.task_info?.total || 0;
+                    }
+                    
+                    if (document.getElementById('tasksList')) {
+                        renderTasksList(data.tasks || []);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error updating system status:', error);
+                })
+                .finally(() => {
+                    // Очищаем предыдущий таймер перед установкой нового
+                    if (statusUpdateTimer) {
+                        clearTimeout(statusUpdateTimer);
+                    }
+                    statusUpdateTimer = setTimeout(updateSystemStatus, 5000);
+                });
+        }
+        
+        // Отображаем список задач
+        function renderTasksList(tasks) {
+            const tasksList = document.getElementById('tasksList');
+            if (!tasksList) return;
+            
+            tasksList.innerHTML = '';
+            
+            // Сортируем задачи: сначала активные, затем ожидающие, затем завершенные
+            const sortedTasks = [...tasks].sort((a, b) => {
+                if (a.is_processing && !b.is_processing) return -1;
+                if (!a.is_processing && b.is_processing) return 1;
+                if (a.completed && !b.completed) return 1;
+                if (!a.completed && b.completed) return -1;
+                return b.task_id - a.task_id;
+            });
+            
+            sortedTasks.forEach(task => {
+                const taskItem = document.createElement('div');
+                taskItem.className = 'task-item';
+                
+                if (task.is_processing) {
+                    taskItem.classList.add('active-task');
+                } else if (task.completed) {
+                    taskItem.classList.add('completed-task');
+                } else if (task.error) {
+                    taskItem.classList.add('error-task');
+                }
+                
+                taskItem.innerHTML = `
+                    <h4>${task.filename || 'Unknown file'} (Task #${task.task_id || '?'})</h4>
+                    <p>Status: ${task.completed ? 'Completed' : task.is_processing ? 'Processing' : 'Waiting'}${task.error ? ' (Error)' : ''}</p>
+                    ${task.is_processing ? `<p>Progress: ${task.progress || 0}%</p>` : ''}
+                    ${task.upload_time ? `<p>Uploaded at: ${task.upload_time}</p>` : ''}
+                    ${task.start_time ? `<p>Started at: ${task.start_time}</p>` : ''}
+                    ${task.end_time ? `<p>Completed at: ${task.end_time}</p>` : ''}
+                    ${task.error ? `<p style="color: red;">Error: ${task.error}</p>` : ''}
+                    ${task.completed && task.processed_file ? 
+                        `<button onclick="viewResult(${task.task_id})">View Result</button>` : ''}
+                `;
+                
+                tasksList.appendChild(taskItem);
+            });
+        }
+        
+        // Просмотр результата задачи
+        function viewResult(taskId) {
+            fetch(`/progress/${taskId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.task?.completed && data.task.processed_file) {
+                        const resultContainer = document.getElementById('resultContainer');
+                        const videoElement = document.getElementById('processedVideo');
+                        
+                        if (resultContainer && videoElement) {
+                            document.getElementById('processedFileName').textContent = data.task.filename || 'Processed video';
+                            document.getElementById('endTime').textContent = data.task.end_time || 'Unknown time';
+                            videoElement.src = '/processed/' + data.task.processed_file;
+                            
+                            resultContainer.style.display = 'block';
+                            resultContainer.scrollIntoView({ behavior: 'smooth' });
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error viewing result:', error);
+                    alert('Failed to load result');
+                });
+        }
+        
+        // Обработка загрузки файла
+        document.getElementById('uploadBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a video file first');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Upload failed');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    currentTaskId = data.task_id;
+                    
+                    // Показываем контейнер прогресса
+                    const progressContainer = document.getElementById('progressContainer');
+                    if (progressContainer) {
+                        progressContainer.style.display = 'block';
+                    }
+                    if (document.getElementById('fileName')) {
+                        document.getElementById('fileName').textContent = data.filename || 'Unknown file';
+                    }
+                    
+                    // Начинаем опрос прогресса
+                    checkProgress(currentTaskId);
+                    
+                    // Обновляем статус системы
+                    updateSystemStatus();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred during upload');
+            });
+        });
+        
+        // Проверка прогресса обработки
+        function checkProgress(taskId) {
+            if (!taskId) return;
+            
+            fetch(`/progress/${taskId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Progress check failed');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data.task) {
+                        throw new Error('Invalid task data');
+                    }
+                    
+                    const progressText = document.getElementById('progressText');
+                    const progressBar = document.getElementById('progressBar');
+                    
+                    if (progressText && progressBar) {
+                        progressText.textContent = data.task.progress || 0;
+                        progressBar.style.width = (data.task.progress || 0) + '%';
+                    }
+                    
+                    if (data.task.start_time && document.getElementById('startTime')) {
+                        document.getElementById('startTime').textContent = data.task.start_time;
+                    }
+                    
+                    if (data.task.is_processing) {
+                        // Продолжаем опрос, если обработка еще идет
+                        if (progressCheckTimer) {
+                            clearTimeout(progressCheckTimer);
+                        }
+                        progressCheckTimer = setTimeout(() => checkProgress(taskId), 1000);
+                    } else if (data.task.completed) {
+                        // Показываем результат
+                        const resultContainer = document.getElementById('resultContainer');
+                        if (resultContainer) {
+                            resultContainer.style.display = 'block';
+                        }
+                        
+                        if (document.getElementById('processedFileName')) {
+                            document.getElementById('processedFileName').textContent = data.task.filename || 'Processed video';
+                        }
+                        if (document.getElementById('endTime')) {
+                            document.getElementById('endTime').textContent = data.task.end_time || 'Unknown time';
+                        }
+                        
+                        const videoElement = document.getElementById('processedVideo');
+                        if (videoElement && data.task.processed_file) {
+                            videoElement.src = '/processed/' + data.task.processed_file;
+                        }
+                        
+                        // Обновляем список задач
+                        updateSystemStatus();
+                    } else if (data.task.error) {
+                        alert(`Error processing video: ${data.task.error}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking progress:', error);
+                    // Попробуем еще раз через 2 секунды в случае ошибки
+                    if (progressCheckTimer) {
+                        clearTimeout(progressCheckTimer);
+                    }
+                    progressCheckTimer = setTimeout(() => checkProgress(taskId), 2000);
+                });
+        }
+        
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            updateSystemStatus();
+        });
+        
+        // Очистка таймеров при закрытии страницы
+        window.addEventListener('beforeunload', function() {
+            if (statusUpdateTimer) {
+                clearTimeout(statusUpdateTimer);
+            }
+            if (progressCheckTimer) {
+                clearTimeout(progressCheckTimer);
+            }
+        });
+    </script>
+</body>
+</html>

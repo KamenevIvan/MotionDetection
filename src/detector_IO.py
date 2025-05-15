@@ -45,10 +45,10 @@ def show_boxes(frame, detections: list[detection_processing.Detection], fps):
                 
                 cv.putText(frame, label, text_position, cv.FONT_HERSHEY_SIMPLEX, settings.TEXT_FONT_SCALE, settings.box_color, settings.TEXT_FONT_THICKNESS)
 
-        if settings.enable_show_boxes:
-            cv.imshow("Video-zagolovok okna", frame)
+        #if settings.enable_show_boxes:
+           # cv.imshow("Video-zagolovok okna", frame)
             #cv.waitKey(int(1000/fps))
-            cv.waitKey(1)
+            #cv.waitKey(1)
         return frame
     return None
 

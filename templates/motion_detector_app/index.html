@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Motion Detector</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .progress-bar.dynamic-width {
+            width: var(--progress-width, 0%);
+        }
+        .video-container {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            height: 0;
+            overflow: hidden;
+            margin-bottom: 20px;
+            background: #000;
+            border-radius: 5px;
+        }
+        .video-container video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .task-card {
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .task-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .progress {
+            height: 20px;
+            border-radius: 10px;
+        }
+        .filename {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+            display: inline-block;
+        }
+        .status-badge {
+            min-width: 100px;
+            text-align: center;
+        }
+        body {
+            background-color: #f8f9fa;
+        }
+        .upload-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .tasks-container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .delete-btn {
+            transition: opacity 0.3s;
+        }
+        .delete-btn:hover {
+            opacity: 0.8;
+        }
+        .progress-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+<div class="container py-4">
+    <div class="text-center mb-4">
+        <h1><i class="bi bi-camera-video"></i> Video Motion Detector</h1>
+        <p class="text-muted">Upload your video to detect moving objects</p>
+    </div>
+    
+    <!-- Upload Section -->
+    <div class="upload-container mb-4">
+        <h5 class="mb-3"><i class="bi bi-upload"></i> Upload New Video</h5>
+        <form id="upload-form" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label for="video-input" class="form-label">Select video file (MP4, AVI, MOV, MKV)</label>
+                <input class="form-control" type="file" id="video-input" accept="video/*" required>
+                <div class="form-text">Max file size: 500MB</div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="submit-btn">
+                <i class="bi bi-play-circle"></i> Process Video
+            </button>
+        </form>
+    </div>
+
+    <!-- Results Section -->
+    <div class="tasks-container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-list-task"></i> Processing Tasks</h5>
+            <span class="badge bg-secondary">
+                Total: <span id="total-tasks">{{ tasks.count }}</span> | 
+                Processing: <span id="processing-tasks">{{ processing_tasks }}</span>
+            </span>
+        </div>
+        
+        <div id="tasks-list">
+            {% for task in tasks %}
+            <div class="card task-card mb-3" data-task-id="{{ task.id }}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h6 class="card-title mb-0">
+                                <span class="filename" title="{{ task.original_file.name }}">
+                                    {{ task.original_file.name }}
+                                </span>
+                            </h6>
+                            <small class="text-muted">
+                                <i class="bi bi-clock"></i> 
+                                <span data-iso-date="{{ task.created_at|date:'c' }}">{{ task.created_at|date:"M d, Y H:i" }}</span>
+                            </small>
+                        </div>
+                        <div>
+                            <span class="badge status-badge rounded-pill bg-{% if task.status == 'completed' %}success{% elif task.status == 'failed' %}danger{% elif task.status == 'processing' %}warning{% else %}info{% endif %}">
+                                {{ task.get_status_display }}
+                            </span>
+                            <button class="btn btn-sm btn-outline-danger delete-btn ms-2 delete-task" data-task-id="{{ task.id }}" title="Delete task">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    
+                    {% if task.status == 'completed' and task.processed_file %}
+                    <div class="video-container mb-3">
+                        <video controls width="100%">
+                            <source src="{{ task.processed_file.url }}" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                            <i class="bi bi-check-circle"></i> Completed in 
+                            {{ task.updated_at|timesince:task.created_at }}
+                        </small>
+                        <div>
+                            <a href="{{ task.processed_file.url }}" class="btn btn-sm btn-outline-primary" download>
+                                <i class="bi bi-download"></i> Download
+                            </a>
+                        </div>
+                    </div>
+                    {% elif task.status == 'failed' %}
+                    <div class="alert alert-danger mb-0 mt-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-exclamation-triangle"></i> Processing failed</span>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% empty %}
+            <div class="text-center py-4">
+                <i class="bi bi-folder-x" style="font-size: 2rem; color: #6c757d;"></i>
+                <p class="text-muted mt-2">No video tasks yet. Upload your first video!</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Upload form handling
+    const uploadForm = document.getElementById('upload-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const videoInput = document.getElementById('video-input');
+    
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        if (!videoInput.files.length) {
+            alert('Please select a video file first');
+            return;
+        }
+        
+        const file = videoInput.files[0];
+        const fileExt = file.name.split('.').pop().toLowerCase();
+        const allowedExts = ['mp4', 'avi', 'mov', 'mkv'];
+        
+        if (!allowedExts.includes(fileExt)) {
+            alert('Invalid file type. Please upload a video file (MP4, AVI, MOV, MKV)');
+            return;
+        }
+        
+        if (file.size > 500 * 1024 * 1024) {
+            alert('File is too large. Maximum size is 500MB');
+            return;
+        }
+        
+        // Disable button and show loading state
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+        
+        const formData = new FormData();
+        formData.append('video', file);
+        
+        try {
+            const response = await fetch('/upload/', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Reload the page to show the new task
+                location.reload();
+            } else {
+                alert(data.message || 'Upload failed');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Upload failed. Please try again.');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-play-circle"></i> Process Video';
+        }
+    });
+
+    // Format date to local time
+    function formatLocalDateTime(dateString) {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleString();
+    }
+
+    // Update all dates on the page
+    function updateAllDates() {
+        document.querySelectorAll('[data-iso-date]').forEach(element => {
+            const isoDate = element.getAttribute('data-iso-date');
+            if (isoDate) {
+                element.textContent = formatLocalDateTime(isoDate);
+            }
+        });
+    }
+
+    // Task status update function
+    async function updateTaskStatus(taskId) {
+        try {
+            const response = await fetch(`/tasks/${taskId}/status/?t=${Date.now()}`);
+            const data = await response.json();
+            
+            const taskCard = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+            if (!taskCard) return false;
+
+            // Update status badge
+            const statusBadge = taskCard.querySelector('.status-badge');
+            if (statusBadge) {
+                const statusClass = {
+                    'completed': 'bg-success',
+                    'failed': 'danger',
+                    'processing': 'bg-warning',
+                    'pending': 'bg-info'
+                }[data.status] || 'bg-secondary';
+                
+                statusBadge.className = `badge status-badge rounded-pill ${statusClass}`;
+                statusBadge.textContent = data.status_display || data.status;
+            }
+
+            // Update content for completed tasks
+            if (data.status === 'completed' && data.processed_url) {
+                const cardBody = taskCard.querySelector('.card-body');
+                if (!cardBody.querySelector('.video-container')) {
+                    const existingHeader = cardBody.querySelector('.d-flex.justify-content-between');
+                    
+                    cardBody.innerHTML = `
+                        ${existingHeader.outerHTML}
+                        <div class="video-container mb-3">
+                            <video controls width="100%">
+                                <source src="${data.processed_url}" type="video/mp4">
+                            </video>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                <i class="bi bi-check-circle"></i> Completed
+                            </small>
+                            <a href="${data.processed_url}" class="btn btn-sm btn-outline-primary" download>
+                                <i class="bi bi-download"></i> Download
+                            </a>
+                        </div>
+                    `;
+                }
+                return true; // Task completed
+            }
+        } catch (error) {
+            console.error('Update error:', error);
+        }
+        return false;
+    }
+
+    // Initialize task updates
+    function initTaskUpdates() {
+        document.querySelectorAll('.task-card[data-task-id]').forEach(card => {
+            const taskId = card.dataset.taskId;
+            const statusBadge = card.querySelector('.status-badge');
+            
+            // Only track processing/pending tasks
+            if (statusBadge.classList.contains('bg-warning') || 
+                statusBadge.classList.contains('bg-info')) {
+                
+                // Update immediately
+                updateTaskStatus(taskId).then(isCompleted => {
+                    if (!isCompleted) {
+                        // Set interval for unfinished tasks
+                        const intervalId = setInterval(async () => {
+                            const isDone = await updateTaskStatus(taskId);
+                            if (isDone) {
+                                clearInterval(intervalId);
+                                updateCounters();
+                            }
+                        }, 3000);
+                        
+                        card.dataset.intervalId = intervalId;
+                    } else {
+                        updateCounters();
+                    }
+                });
+            }
+        });
+    }
+
+    // Update task counters
+    function updateCounters() {
+        const taskCards = document.querySelectorAll('.task-card[data-task-id]');
+        document.getElementById('total-tasks').textContent = taskCards.length;
+        document.getElementById('processing-tasks').textContent = 
+            document.querySelectorAll('.task-card .badge.bg-warning').length;
+    }
+
+    // Handle task deletion
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('delete-task') || e.target.closest('.delete-task')) {
+            const button = e.target.classList.contains('delete-task') ? e.target : e.target.closest('.delete-task');
+            const taskId = button.getAttribute('data-task-id');
+            const taskCard = button.closest('.task-card');
+
+            if (confirm('Are you sure you want to delete this task and all related files?')) {
+                // Stop any video playback
+                const videoElement = taskCard.querySelector('video');
+                if (videoElement) {
+                    videoElement.pause();
+                    videoElement.src = '';
+                    videoElement.load();
+                }
+
+                // Clear update interval if exists
+                if (taskCard.dataset.intervalId) {
+                    clearInterval(taskCard.dataset.intervalId);
+                }
+
+                button.disabled = true;
+                button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+                fetch(`/tasks/${taskId}/delete/`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        taskCard.style.opacity = '0';
+                        setTimeout(() => {
+                            taskCard.remove();
+                            updateCounters();
+                        }, 300);
+                    } else {
+                        throw new Error(data.message || 'Failed to delete task');
+                    }
+                })
+                .catch(error => {
+                    console.error('Delete error:', error);
+                    alert('Error deleting task: ' + error.message);
+                    button.disabled = false;
+                    button.innerHTML = '<i class="bi bi-trash"></i>';
+                });
+            }
+        }
+    });
+
+    // Check for new tasks periodically
+    function checkNewTasks() {
+        fetch('/tasks/recent/')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(tasks => {
+                tasks.forEach(task => {
+                    if (!document.querySelector(`.task-card[data-task-id="${task.id}"]`)) {
+                        const tasksList = document.getElementById('tasks-list');
+                        
+                        // Create new task card
+                        const taskCard = document.createElement('div');
+                        taskCard.className = 'card task-card mb-3';
+                        taskCard.dataset.taskId = task.id;
+                        
+                        taskCard.innerHTML = `
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        <h6 class="card-title mb-0">
+                                            <span class="filename" title="${task.original_filename}">
+                                                ${task.original_filename}
+                                            </span>
+                                        </h6>
+                                        <small class="text-muted">
+                                            <i class="bi bi-clock"></i> 
+                                            <span data-iso-date="${task.created_at}">${formatLocalDateTime(task.created_at)}</span>
+                                        </small>
+                                    </div>
+                                    <div>
+                                        <span class="badge status-badge rounded-pill bg-${task.status === 'completed' ? 'success' : 
+                                            task.status === 'failed' ? 'danger' : 
+                                            task.status === 'processing' ? 'warning' : 'info'}">
+                                            ${task.status_display || task.status}
+                                        </span>
+                                        <button class="btn btn-sm btn-outline-danger delete-btn ms-2 delete-task" 
+                                                data-task-id="${task.id}" title="Delete task">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                ${task.status === 'processing' ? 
+                                '<div class="alert alert-info mb-3"><i class="bi bi-hourglass-split"></i> Processing video...</div>' : ''}
+                            </div>
+                        `;
+                        
+                        // Insert new task at the top of the list
+                        if (tasksList.firstChild) {
+                            tasksList.insertBefore(taskCard, tasksList.firstChild);
+                        } else {
+                            tasksList.appendChild(taskCard);
+                        }
+                        
+                        // Initialize updates for new task if needed
+                        if (task.status === 'processing' || task.status === 'pending') {
+                            updateTaskStatus(task.id);
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error checking new tasks:', error);
+            });
+    }
+
+    // Initialize everything
+    updateAllDates();
+    initTaskUpdates();
+    updateCounters();
+    
+    // Check for new tasks every 10 seconds
+    setInterval(checkNewTasks, 10000);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+/* Дополнительные стили для интерфейса */
+.task-card {
+    transition: transform 0.2s;
+}
+.task-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.video-container {
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.progress-thin {
+    height: 6px;
+}
+
+.filename {
+    max-width: 250px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+}

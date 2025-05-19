@@ -1,0 +1,60 @@
+import cv2 as cv
+import motion_detector.detection_processing as detection_processing
+import motion_detector.settings_detector as settings_detector
+
+
+def print_console(text):
+    if settings_detector.enable_print_console:
+        print(text)
+
+def print_background_parameters(bs: cv.BackgroundSubtractorMOG2):
+    if settings_detector.enable_print_console:
+        print("Parameters of the background subtractor MOG2:")
+        print(f'background ratio={bs.getBackgroundRatio():.4f}, complexity reduction threshold={bs.getComplexityReductionThreshold():.4f}') 
+        print(f'detect shadows={bs.getDetectShadows()}, history={bs.getHistory()}, number of gaussians={bs.getNMixtures()}') 
+        print(f'shadow threshold={bs.getShadowThreshold()}, shadow value={bs.getShadowValue()}, initial variance={bs.getVarInit()}') 
+        print(f'max variance={bs.getVarMax()}, min variance={bs.getVarMin()}, main threshold={bs.getVarThreshold()}')
+        print(f'new gaussian component variance threshold={bs.getVarThresholdGen()}')
+
+def print_video_parameters(fps, width, height):
+    if settings_detector.enable_print_console:
+        print("Video parameters:")
+        print(f'fps = {fps}, width = {width}, height = {height}')
+
+def clear_output_file(path):
+    if settings_detector.enable_output_file:
+        line = 'Frame#, IDs, xmin, ymin, width, height'
+        with open(path, "w") as file: 
+            file.write(line)
+
+def print_frame_detection(path, detections: list[detection_processing.Detection], frame_counter):
+    if settings_detector.enable_output_file:
+        with open(path, "a") as file:
+            for detect in detections:
+                line = str(frame_counter) + ',' + str(detect.id) + ',' + str(detect.x) + ',' + str(detect.y) + ',' + str(detect.width) + ',' + str(detect.height) + "1,-1,-1,-1\n"
+                file.write(line)
+
+def show_boxes(frame, detections: list[detection_processing.Detection], fps):
+    if settings_detector.enable_show_boxes or settings_detector.enable_save_frames:
+        for detect in detections:
+            if detect.id != -1:
+                cv.rectangle(frame, (detect.x, detect.y), (detect.x + detect.width, detect.y + detect.height), settings_detector.box_color, settings_detector.BOX_LINE_THICKNESS)
+                # Добавляем подпись с ID объекта, если он есть
+                
+                label = f"ID: {detect.id}"
+                    # Позиция текста (над прямоугольником)
+                text_position = (detect.x, detect.y - 10)  # Смещаем текст немного выше прямоугольника
+                    
+                cv.putText(frame, label, text_position, cv.FONT_HERSHEY_SIMPLEX, settings_detector.TEXT_FONT_SCALE, settings_detector.box_color, settings_detector.TEXT_FONT_THICKNESS)
+
+        #if settings.enable_show_boxes:
+           # cv.imshow("Video-zagolovok okna", frame)
+            #cv.waitKey(int(1000/fps))
+            #cv.waitKey(1)
+        return frame
+    return None
+
+def save_frame_with_boxes(frame, frame_counter, leng):
+    if settings_detector.enable_save_frames and frame is not None:
+        cv.imwrite(settings_detector.output_frame_dir + "/image_with_box"+ str(frame_counter).zfill(leng)+".jpg", frame)
+            

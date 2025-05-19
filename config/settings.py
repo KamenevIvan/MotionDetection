@@ -11,7 +11,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # Убедитесь, что есть эти настройки
 DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
 
-SECRET_KEY = 'dvr0ify8e6r@6+j3$@&iv6p7spb(5!b$1oe%t(f7q!$+c&398l'
+SECRET_KEY = 'your_key'
 
 DEBUG = True
 
